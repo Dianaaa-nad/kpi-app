@@ -1,0 +1,661 @@
+import streamlit as st
+import pandas as pd
+import pymysql
+import io
+from datetime import datetime, date
+
+st.set_page_config(layout="wide", page_title="Import Data KPI", page_icon="📥")
+
+# ==============================================================================
+# KONFIGURASI DATABASE — sesuaikan
+# ==============================================================================
+DB_CONFIG = {
+    "host": "127.0.0.1",
+    "user": "root",
+    "password": "",
+    "database": "u194014241_kpi_db",
+    "charset": "utf8mb4",
+}
+
+# ==============================================================================
+# CSS
+# ==============================================================================
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+    --bg-body:#f5f6fa; --bg-card:#fff; --text-primary:#1a1a2e;
+    --text-secondary:#262626; --text-muted:#8c8c8c; --text-soft:#595959;
+    --border-card:#f0f2f5; --border-light:#f0f0f0; --border-input:#d9d9d9;
+    --shadow-card:0 1px 4px rgba(0,0,0,.05); --hr-color:#f0f0f0;
+    --cat-header-bg:#fafafa; --accent:#1677ff; --accent-light:#e6f4ff;
+    --accent-border:#91caff; --success:#52c41a; --success-bg:#f6ffed;
+    --success-border:#b7eb8f; --warning-bg:#fffbe6; --warning-border:#ffe58f;
+    --warning-text:#d48806; --error:#ff4d4f; --error-bg:#fff2f0;
+    --error-border:#ffccc7;
+}
+@media (prefers-color-scheme:dark){
+    :root{
+        --bg-body:#0e1117; --bg-card:#1a1d24; --text-primary:#e6e8ec;
+        --text-secondary:#cfd2d6; --text-muted:#8b8fa3; --text-soft:#a0a4b0;
+        --border-card:#2a2d35; --border-light:#2a2d35; --border-input:#3a3d45;
+        --shadow-card:0 1px 6px rgba(0,0,0,.30); --hr-color:#2a2d35;
+        --cat-header-bg:#1e2128; --accent:#4096ff; --accent-light:#111d2c;
+        --accent-border:#15395b; --success:#73d13d; --success-bg:#162312;
+        --success-border:#274916; --warning-bg:#2b2111; --warning-border:#594214;
+        --warning-text:#d48806; --error:#ff7875; --error-bg:#2c1618;
+        --error-border:#58181c;
+    }
+    .stApp,.main,[data-testid="stAppViewContainer"],[data-testid="stHeader"],[data-testid="stToolbar"]
+        {background-color:var(--bg-body)!important;}
+    .stSelectbox>div>div,[data-baseweb="select"]>div
+        {background-color:var(--bg-card)!important;color:var(--text-secondary)!important;border-color:var(--border-input)!important;}
+}
+html,body,[class*="css"]{font-family:'Plus Jakarta Sans',sans-serif;background-color:var(--bg-body);}
+.stApp{background-color:var(--bg-body);}
+#MainMenu{visibility:hidden;}footer{visibility:hidden;}header{visibility:hidden;}
+.main .block-container{padding-top:2rem;padding-left:2.5rem;padding-right:2.5rem;max-width:100%;}
+
+/* Header */
+.import-header{display:flex;align-items:center;gap:12px;margin-bottom:8px;}
+.import-header-icon{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#1677ff,#4096ff);display:flex;align-items:center;justify-content:center;font-size:20px;color:white;box-shadow:0 4px 12px rgba(22,119,255,.25);}
+.import-header-text h1{font-size:22px;font-weight:700;color:var(--text-primary);margin:0;line-height:1.3;}
+.import-header-text p{font-size:13px;color:var(--text-muted);margin:0;}
+
+/* Card */
+.import-card{background:var(--bg-card);border:1px solid var(--border-card);border-radius:14px;padding:24px 28px;box-shadow:var(--shadow-card);margin-bottom:20px;}
+.import-card-title{font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:6px;display:flex;align-items:center;gap:8px;}
+.import-card-desc{font-size:12.5px;color:var(--text-muted);margin-bottom:18px;}
+
+/* Steps */
+.steps{display:flex;gap:0;margin-bottom:28px;}
+.step{flex:1;text-align:center;padding:12px 8px;position:relative;}
+.step-number{width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;margin-bottom:6px;}
+.step-active .step-number{background:linear-gradient(135deg,#1677ff,#4096ff);color:white;box-shadow:0 3px 10px rgba(22,119,255,.3);}
+.step-done .step-number{background:var(--success);color:white;}
+.step-pending .step-number{background:var(--border-light);color:var(--text-muted);}
+.step-label{font-size:11.5px;font-weight:600;display:block;}
+.step-active .step-label{color:var(--accent);}
+.step-done .step-label{color:var(--success);}
+.step-pending .step-label{color:var(--text-muted);}
+
+/* Upload zone */
+.upload-zone{border:2px dashed var(--border-input);border-radius:12px;padding:32px 20px;text-align:center;background:var(--bg-body);}
+.upload-zone-icon{font-size:38px;margin-bottom:8px;opacity:.7;}
+.upload-zone-text{font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px;}
+.upload-zone-hint{font-size:12px;color:var(--text-muted);}
+.upload-zone-formats{display:flex;gap:8px;justify-content:center;margin-top:12px;}
+.format-badge{font-size:11px;font-weight:600;padding:3px 10px;border-radius:6px;letter-spacing:.3px;}
+.format-csv{background:#f6ffed;color:#389e0d;border:1px solid #b7eb8f;}
+@media (prefers-color-scheme:dark){.format-csv{background:#162312;color:#73d13d;border-color:#274916;}}
+
+/* Template card */
+.template-card{display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:10px;border:1px solid var(--border-light);background:var(--bg-body);margin-bottom:10px;}
+.template-icon{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.template-icon-csv{background:#f6ffed;}
+@media (prefers-color-scheme:dark){.template-icon-csv{background:#162312;}}
+.template-info{flex:1;}
+.template-name{font-size:13px;font-weight:600;color:var(--text-primary);}
+.template-desc{font-size:11px;color:var(--text-muted);}
+
+/* Info strip */
+.info-strip{display:flex;flex-wrap:wrap;gap:20px;padding:14px 20px;background:var(--accent-light);border:1px solid var(--accent-border);border-radius:10px;margin-bottom:18px;}
+.info-strip-item{font-size:12.5px;color:var(--text-soft);display:flex;align-items:center;gap:6px;}
+.info-strip-value{font-weight:700;color:var(--accent);}
+
+/* Preview table */
+.preview-wrap{overflow-x:auto;border-radius:10px;border:1px solid var(--border-light);}
+.preview-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+.preview-table th{font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;padding:10px;border-bottom:2px solid var(--border-light);text-align:center;background:var(--cat-header-bg);white-space:nowrap;}
+.preview-table th:first-child{text-align:left;min-width:220px;}
+.preview-table td{padding:9px 10px;border-bottom:1px solid var(--border-light);color:var(--text-secondary);text-align:center;}
+.preview-table td:first-child{text-align:left;font-weight:600;color:var(--text-primary);white-space:nowrap;}
+.preview-table tr:last-child td{border-bottom:none;}
+.preview-table tr:hover td{background:var(--accent-light);}
+
+/* Error table */
+.error-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+.error-table th{font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;padding:10px;border-bottom:2px solid var(--border-light);background:var(--cat-header-bg);text-align:left;}
+.error-table td{padding:9px 10px;border-bottom:1px solid var(--border-light);color:var(--text-secondary);}
+.error-table tr:last-child td{border-bottom:none;}
+.row-error{background:var(--error-bg)!important;}
+.error-msg{color:var(--error);font-size:11.5px;}
+
+/* Status badge */
+.badge{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:8px;font-size:12px;font-weight:600;}
+.badge-success{background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);}
+.badge-warning{background:var(--warning-bg);color:var(--warning-text);border:1px solid var(--warning-border);}
+.badge-error{background:var(--error-bg);color:var(--error);border:1px solid var(--error-border);}
+
+/* Action row */
+.action-row{display:flex;gap:12px;justify-content:flex-end;margin-top:20px;padding-top:18px;border-top:1px solid var(--border-light);}
+
+/* Metric mini */
+.metric-row{display:flex;gap:16px;margin-bottom:18px;}
+.metric-box{flex:1;background:var(--bg-body);border:1px solid var(--border-light);border-radius:12px;padding:16px 20px;text-align:center;}
+.metric-num{font-size:28px;font-weight:700;line-height:1.1;margin-bottom:4px;}
+.metric-label{font-size:11.5px;color:var(--text-muted);font-weight:500;}
+.metric-total .metric-num{color:var(--text-primary);}
+.metric-ok .metric-num{color:var(--success);}
+.metric-err .metric-num{color:var(--error);}
+
+/* Back link */
+.back-link{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--text-muted);text-decoration:none;margin-bottom:20px;}
+.back-link:hover{color:var(--accent);}
+
+/* Streamlit file uploader override */
+[data-testid="stFileUploader"]{background:var(--bg-body);border:2px dashed var(--border-input);border-radius:12px;padding:10px;}
+[data-testid="stFileUploader"]:hover{border-color:var(--accent);}
+
+/* Success result card */
+.result-card{padding:24px;border-radius:14px;text-align:center;border:1px solid var(--success-border);background:var(--success-bg);margin-bottom:20px;}
+.result-icon{font-size:48px;margin-bottom:12px;}
+.result-title{font-size:20px;font-weight:700;color:var(--success);margin-bottom:6px;}
+.result-desc{font-size:13px;color:var(--text-soft);}
+.result-stats{display:flex;gap:20px;justify-content:center;margin-top:20px;flex-wrap:wrap;}
+.result-stat{font-size:13px;color:var(--text-soft);}
+.result-stat b{color:var(--text-primary);}
+</style>
+""", unsafe_allow_html=True)
+
+
+# ==============================================================================
+# DB HELPERS
+# ==============================================================================
+def get_connection():
+    return pymysql.connect(**DB_CONFIG, cursorclass=pymysql.cursors.DictCursor)
+
+def load_lookup_data(conn):
+    with conn.cursor() as cur:
+        cur.execute("SELECT branch_id, branch_name FROM branches")
+        branches = {r["branch_name"].strip().upper(): r["branch_id"] for r in cur.fetchall()}
+        cur.execute("SELECT variable_id, var_code FROM kpi_variables")
+        variables = {r["var_code"].strip().upper(): r["variable_id"] for r in cur.fetchall()}
+    return branches, variables
+
+def parse_periode(raw) -> date | None:
+    if pd.isna(raw): return None
+    s = str(raw).strip()
+    for fmt in ("%Y-%m-%d", "%Y-%m", "%m/%Y", "%Y/%m", "%m-%Y"):
+        try:
+            return datetime.strptime(s[:len(fmt)+2], fmt).replace(day=1).date()
+        except Exception:
+            continue
+    try:
+        return pd.to_datetime(s).replace(day=1).date()
+    except Exception:
+        return None
+
+def validate_rows(df: pd.DataFrame, branches: dict, variables: dict) -> pd.DataFrame:
+    results = []
+    for idx, row in df.iterrows():
+        errors = []
+        branch_name_raw = str(row.get("branch_name","")).strip()
+        var_code_raw    = str(row.get("var_code","")).strip()
+        branch_id   = branches.get(branch_name_raw.upper())
+        variable_id = variables.get(var_code_raw.upper())
+
+        if not branch_name_raw: errors.append("branch_name kosong")
+        elif branch_id is None: errors.append(f"'{branch_name_raw}' tidak ditemukan")
+
+        if not var_code_raw: errors.append("var_code kosong")
+        elif variable_id is None: errors.append(f"var_code '{var_code_raw}' tidak ditemukan")
+
+        parsed = parse_periode(row.get("periode"))
+        if parsed is None: errors.append(f"periode '{row.get('periode')}' tidak valid")
+
+        value = target = None
+        try:
+            v = row.get("value"); value = float(v) if pd.notna(v) and str(v).strip() != "" else None
+        except: errors.append("value bukan angka")
+        try:
+            t = row.get("target"); target = float(t) if pd.notna(t) and str(t).strip() != "" else None
+        except: errors.append("target bukan angka")
+
+        results.append({
+            "row_num": idx + 2,
+            "branch_name": branch_name_raw, "var_code": var_code_raw,
+            "periode_raw": str(row.get("periode","")), "value": value, "target": target,
+            "branch_id": branch_id, "variable_id": variable_id, "parsed_periode": parsed,
+            "status": "error" if errors else "ok",
+            "error_message": "; ".join(errors) if errors else None,
+        })
+    return pd.DataFrame(results)
+
+def upsert_realizations(conn, ok: pd.DataFrame) -> int:
+    rows = ok[ok["value"].notna()]
+    if rows.empty: return 0
+    sql = """INSERT INTO kpi_realizations (branch_id,variable_id,periode,value)
+             VALUES (%s,%s,%s,%s) ON DUPLICATE KEY UPDATE value=VALUES(value)"""
+    data = [(r.branch_id, r.variable_id, r.parsed_periode, r.value) for r in rows.itertuples()]
+    with conn.cursor() as cur: cur.executemany(sql, data)
+    return len(data)
+
+def upsert_targets(conn, ok: pd.DataFrame) -> int:
+    rows = ok[ok["target"].notna()]
+    if rows.empty: return 0
+    sql = """INSERT INTO kpi_targets (branch_id,variable_id,periode,target_value)
+             VALUES (%s,%s,%s,%s) ON DUPLICATE KEY UPDATE target_value=VALUES(target_value)"""
+    data = [(r.branch_id, r.variable_id, r.parsed_periode, r.target) for r in rows.itertuples()]
+    with conn.cursor() as cur: cur.executemany(sql, data)
+    return len(data)
+
+def save_log(conn, user_id, filename, status, notes, validated) -> int:
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO import_logs (imported_by,filename,status,notes) VALUES (%s,%s,%s,%s)",
+                    (user_id, filename, status, notes))
+        iid = cur.lastrowid
+        cur.executemany(
+            "INSERT INTO import_log_details (import_id,branch_name,var_code,value,periode,row_status,error_message) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            [(iid, r.branch_name, r.var_code, r.value, r.parsed_periode, r.status, r.error_message)
+             for r in validated.itertuples()])
+    return iid
+
+
+# ==============================================================================
+# TEMPLATE CSV
+# ==============================================================================
+SAMPLE_ROWS = [
+    {"branch_name":"KC BANJARMASIN LAMBUNG MANGKURAT","var_code":"CM",        "periode":"2026-01","value":1500000000,"target":2000000000},
+    {"branch_name":"KC BANJARMASIN LAMBUNG MANGKURAT","var_code":"DPK",       "periode":"2026-01","value":5000000000,"target":6000000000},
+    {"branch_name":"KC BANJARMASIN LAMBUNG MANGKURAT","var_code":"NPF",       "periode":"2026-01","value":1.8,       "target":2.0},
+    {"branch_name":"KC BANJARBARU",                  "var_code":"CM",        "periode":"2026-01","value":800000000, "target":1000000000},
+    {"branch_name":"KC BANJARBARU",                  "var_code":"CM",        "periode":"2026-02","value":850000000, "target":1000000000},
+]
+
+def make_template_csv() -> bytes:
+    return pd.DataFrame(SAMPLE_ROWS).to_csv(index=False).encode("utf-8")
+
+
+# ==============================================================================
+# STEP INDICATOR HELPER
+# ==============================================================================
+def step_class(n: int, current: int) -> str:
+    if n < current:  return "step-done"
+    if n == current: return "step-active"
+    return "step-pending"
+
+def step_num_display(n: int, current: int) -> str:
+    return "✓" if n < current else str(n)
+
+
+# ==============================================================================
+# SESSION STATE INIT
+# ==============================================================================
+if "import_step"      not in st.session_state: st.session_state.import_step = 1
+if "validated_df"     not in st.session_state: st.session_state.validated_df = None
+if "import_done"      not in st.session_state: st.session_state.import_done = False
+if "import_result"    not in st.session_state: st.session_state.import_result = {}
+if "last_filename"    not in st.session_state: st.session_state.last_filename = ""
+
+
+# ==============================================================================
+# PAGE HEADER
+# ==============================================================================
+st.markdown('<a class="back-link" href="/" target="_self">← Kembali ke Dashboard</a>', unsafe_allow_html=True)
+st.markdown("""
+<div class="import-header">
+    <div class="import-header-icon">📥</div>
+    <div class="import-header-text">
+        <h1>Import Data KPI</h1>
+        <p>Upload file CSV berisi realisasi dan target KPI per cabang per bulan</p>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+step = st.session_state.import_step
+
+# Step indicator
+sc = [step_class(i, step) for i in range(1, 5)]
+sn = [step_num_display(i, step) for i in range(1, 5)]
+st.markdown(f"""
+<div class="steps">
+    <div class="step {sc[0]}"><span class="step-number">{sn[0]}</span><span class="step-label">Upload File</span></div>
+    <div class="step {sc[1]}"><span class="step-number">{sn[1]}</span><span class="step-label">Validasi</span></div>
+    <div class="step {sc[2]}"><span class="step-number">{sn[2]}</span><span class="step-label">Preview</span></div>
+    <div class="step {sc[3]}"><span class="step-number">{sn[3]}</span><span class="step-label">Selesai</span></div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ==============================================================================
+# STEP 1 — UPLOAD FILE
+# ==============================================================================
+if step == 1:
+    col_up, col_tmpl = st.columns([3, 2], gap="medium")
+
+    with col_up:
+        st.markdown("""
+        <div class="import-card">
+            <div class="import-card-title">📤 Upload File CSV</div>
+            <div class="import-card-desc">Upload file CSV yang berisi data realisasi dan target KPI</div>
+        """, unsafe_allow_html=True)
+        st.markdown("""
+        <div class="upload-zone">
+            <div class="upload-zone-icon">☁️</div>
+            <div class="upload-zone-text">Drag & drop file di sini</div>
+            <div class="upload-zone-hint">atau klik Browse files di bawah</div>
+            <div class="upload-zone-formats"><span class="format-badge format-csv">.CSV</span></div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        uploaded = st.file_uploader("Upload CSV", type=["csv"], label_visibility="collapsed")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        if uploaded:
+            if st.button("➡️ Lanjut Validasi", type="primary", use_container_width=True):
+                st.session_state["_uploaded_file_bytes"] = uploaded.getvalue()
+                st.session_state["_uploaded_file_name"]  = uploaded.name
+                st.session_state.import_step = 2
+                st.session_state.import_done = False
+                st.rerun()
+
+    with col_tmpl:
+        st.markdown("""
+        <div class="import-card">
+            <div class="import-card-title">📋 Template & Panduan</div>
+            <div class="import-card-desc">Download template CSV sebagai referensi format</div>
+            <div class="template-card">
+                <div class="template-icon template-icon-csv">📄</div>
+                <div class="template-info">
+                    <div class="template-name">Template CSV</div>
+                    <div class="template-desc">branch_name · var_code · periode · value · target</div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        st.download_button("⬇️ Download Template CSV", data=make_template_csv(),
+                           file_name="template_import_kpi.csv", mime="text/csv",
+                           use_container_width=True)
+
+        st.markdown("""
+        <div style="margin-top:16px;padding:14px 16px;background:var(--warning-bg);border:1px solid var(--warning-border);border-radius:10px;">
+            <div style="font-size:12px;font-weight:700;color:var(--warning-text);margin-bottom:8px;">⚠️ Panduan Format</div>
+            <ul style="font-size:11.5px;color:var(--text-soft);margin:0;padding-left:18px;line-height:2;">
+                <li><b>branch_name</b> — nama cabang sesuai database</li>
+                <li><b>var_code</b> — kode variabel (CM, DPK, NPF, dll)</li>
+                <li><b>periode</b> — format YYYY-MM atau YYYY-MM-DD</li>
+                <li><b>value</b> — realisasi (boleh kosong)</li>
+                <li><b>target</b> — target (boleh kosong)</li>
+                <li>Satu file bisa berisi <b>banyak bulan</b></li>
+                <li>Data existing akan di-<b>update</b></li>
+            </ul>
+        </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+
+# ==============================================================================
+# STEP 2 — VALIDASI
+# ==============================================================================
+elif step == 2:
+    file_bytes = st.session_state.get("_uploaded_file_bytes")
+    filename   = st.session_state.get("_uploaded_file_name", "file.csv")
+
+    if not file_bytes:
+        st.session_state.import_step = 1; st.rerun()
+
+    try:
+        df_raw = pd.read_csv(
+            io.BytesIO(file_bytes),
+            sep=";",
+            engine="python"
+        )
+
+        # ambil hanya 5 kolom pertama
+        df_raw = df_raw.iloc[:, :5]
+
+        # rename kolom
+        df_raw.columns = [
+            "branch_name",
+            "var_code",
+            "periode",
+            "value",
+            "target"
+        ]
+
+    except Exception as e:
+        st.error(f"Gagal membaca CSV: {e}")
+    st.stop()
+
+    df_raw.columns = df_raw.columns.str.strip().str.lower()
+    required = {"branch_name","var_code","periode","value","target"}
+    missing  = required - set(df_raw.columns)
+    if missing:
+        st.markdown(f"""
+        <div class="import-card">
+            <div class="import-card-title" style="color:var(--error)">❌ Format File Tidak Valid</div>
+            <p style="font-size:13px;color:var(--text-soft)">Kolom berikut tidak ditemukan: <b>{', '.join(missing)}</b></p>
+        </div>""", unsafe_allow_html=True)
+        if st.button("← Ulangi Upload"): st.session_state.import_step = 1; st.rerun()
+        st.stop()
+
+    with st.spinner("Menghubungkan ke database dan memvalidasi data..."):
+        try:
+            conn = get_connection()
+            branches, variables = load_lookup_data(conn)
+            conn.close()
+        except Exception as e:
+            st.error(f"Gagal koneksi DB: {e}"); st.stop()
+        validated = validate_rows(df_raw, branches, variables)
+        st.write("DEBUG RAW")
+        st.dataframe(df_raw.head())
+
+        st.write("DEBUG VALIDATED")
+        st.dataframe(validated.head())
+
+    st.session_state.validated_df = validated
+    ok_rows    = validated[validated["status"] == "ok"]
+    error_rows = validated[validated["status"] == "error"]
+
+    n_total  = len(validated)
+    n_ok     = len(ok_rows)
+    n_err    = len(error_rows)
+
+    st.markdown(f"""
+    <div class="import-card">
+        <div class="import-card-title">🔍 Hasil Validasi — <span style="color:var(--text-muted);font-weight:500">{filename}</span></div>
+        <div class="metric-row">
+            <div class="metric-box metric-total"><div class="metric-num">{n_total}</div><div class="metric-label">Total Baris</div></div>
+            <div class="metric-box metric-ok"><div class="metric-num">{n_ok}</div><div class="metric-label">✅ Valid</div></div>
+            <div class="metric-box metric-err"><div class="metric-num">{n_err}</div><div class="metric-label">❌ Error</div></div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    if n_err > 0:
+        st.markdown(f"""
+        <div style="margin-bottom:16px;padding:14px 18px;background:var(--error-bg);border:1px solid var(--error-border);border-radius:10px;">
+            <div style="font-size:13px;font-weight:700;color:var(--error);margin-bottom:10px;">❌ {n_err} baris bermasalah</div>
+            <div class="preview-wrap">
+            <table class="error-table">
+                <thead><tr>
+                    <th>Baris</th><th>Cabang</th><th>Var Code</th><th>Periode</th><th>Keterangan Error</th>
+                </tr></thead>
+                <tbody>
+        """ + "".join([
+            f'<tr class="row-error"><td>{r.row_num}</td><td>{r.branch_name}</td>'
+            f'<td>{r.var_code}</td><td>{r.periode_raw}</td>'
+            f'<td class="error-msg">{r.error_message}</td></tr>'
+            for r in error_rows.itertuples()
+        ]) + """
+                </tbody>
+            </table>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        err_csv = error_rows[["row_num","branch_name","var_code","periode_raw","value","target","error_message"]]\
+                    .to_csv(index=False).encode("utf-8")
+        st.download_button("⬇️ Download Laporan Error", data=err_csv,
+                           file_name=f"error_{filename}", mime="text/csv")
+
+    if n_ok == 0:
+        st.markdown('<p style="color:var(--text-muted);font-size:13px">Tidak ada data valid untuk dilanjutkan.</p>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+        if st.button("← Ulangi Upload"): st.session_state.import_step = 1; st.rerun()
+        st.stop()
+
+    badge_cls  = "badge-success" if n_err == 0 else "badge-warning"
+    badge_text = f"✓ {n_ok} baris siap diimport" if n_err == 0 else f"⚠️ {n_ok} baris valid, {n_err} dilewati"
+    st.markdown(f'<span class="badge {badge_cls}">{badge_text}</span>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    col_back, col_next = st.columns([1, 1])
+    with col_back:
+        if st.button("← Ulangi Upload", use_container_width=True):
+            st.session_state.import_step = 1; st.rerun()
+    with col_next:
+        if st.button("➡️ Lihat Preview", type="primary", use_container_width=True):
+            st.session_state.import_step = 3; st.rerun()
+
+
+# ==============================================================================
+# STEP 3 — PREVIEW & SUBMIT
+# ==============================================================================
+elif step == 3:
+    validated  = st.session_state.validated_df
+    filename   = st.session_state.get("_uploaded_file_name", "file.csv")
+
+    if validated is None:
+        st.session_state.import_step = 1; st.rerun()
+
+    ok_rows    = validated[validated["status"] == "ok"].copy()
+    error_rows = validated[validated["status"] == "error"]
+
+    # Pivot preview: baris = branch+periode, kolom = var_code
+    periods    = sorted(ok_rows["parsed_periode"].dropna().unique())
+    var_codes  = sorted(ok_rows["var_code"].str.upper().unique())
+    branches_u = sorted(ok_rows["branch_name"].unique())
+    n_cells    = ok_rows["value"].notna().sum() + ok_rows["target"].notna().sum()
+
+    periods_str = ", ".join([p.strftime("%b %Y") for p in periods])
+
+    # Build pivot for value
+    pivot = ok_rows.pivot_table(
+        index=["branch_name","parsed_periode"],
+        columns="var_code",
+        values="value",
+        aggfunc="first"
+    ).reset_index()
+    pivot.columns.name = None
+
+    st.markdown(f"""
+    <div class="import-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+            <div class="import-card-title">📊 Preview Data — {filename}</div>
+            <span class="badge badge-success">✓ {len(ok_rows)} baris siap diimport</span>
+        </div>
+        <div class="import-card-desc">Data realisasi yang akan disimpan ke database (preview value)</div>
+        <div class="info-strip">
+            <div class="info-strip-item">📅 Periode: <span class="info-strip-value">{periods_str}</span></div>
+            <div class="info-strip-item">🏦 Cabang: <span class="info-strip-value">{len(branches_u)}</span></div>
+            <div class="info-strip-item">📋 Variabel: <span class="info-strip-value">{len(var_codes)}</span></div>
+            <div class="info-strip-item">📊 Data Points: <span class="info-strip-value">{n_cells:,}</span></div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # Render preview table HTML
+    vc_cols  = [c for c in pivot.columns if c not in ("branch_name","parsed_periode")]
+    th_heads = "".join([f"<th>{c}</th>" for c in vc_cols])
+    rows_html = ""
+    for _, row in pivot.iterrows():
+        cells = "".join([
+            f"<td>{'—' if pd.isna(row[c]) else f'{row[c]:,.0f}' if row[c] >= 1000 else f'{row[c]:g}'}</td>"
+            for c in vc_cols
+        ])
+        period_label = row["parsed_periode"].strftime("%b %Y") if pd.notna(row["parsed_periode"]) else ""
+        rows_html += f"<tr><td>{row['branch_name']}<br><small style='color:var(--text-muted);font-weight:400'>{period_label}</small></td>{cells}</tr>"
+
+    st.markdown(f"""
+    <div class="preview-wrap">
+    <table class="preview-table">
+        <thead><tr><th>Cabang / Periode</th>{th_heads}</tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if error_rows.shape[0] > 0:
+        st.markdown(f"""
+        <div style="margin-top:14px;padding:10px 16px;background:var(--warning-bg);border:1px solid var(--warning-border);border-radius:10px;font-size:12.5px;color:var(--warning-text);">
+            ⚠️ <b>{error_rows.shape[0]} baris dilewati</b> karena error — tidak termasuk dalam import
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    col_back, col_spacer, col_submit = st.columns([1, 2, 1])
+    with col_back:
+        if st.button("← Kembali", use_container_width=True):
+            st.session_state.import_step = 2; st.rerun()
+    with col_submit:
+        if st.button("✅ Submit Import", type="primary", use_container_width=True):
+            user_id = st.session_state.get("user_id", 1)
+            try:
+                with st.spinner("Menyimpan ke database..."):
+                    conn = get_connection()
+                    n_val  = upsert_realizations(conn, ok_rows)
+                    n_tgt  = upsert_targets(conn, ok_rows)
+                    status = "success" if error_rows.empty else "partial"
+                    notes  = f"{len(error_rows)} baris dilewati." if not error_rows.empty else None
+                    iid    = save_log(conn, user_id, filename, status, notes, validated)
+                    conn.commit()
+                    conn.close()
+                st.session_state.import_result = {
+                    "n_val": n_val, "n_tgt": n_tgt, "iid": iid,
+                    "n_err": len(error_rows), "periods": periods_str,
+                }
+                st.session_state.import_done = True
+                st.session_state.import_step = 4
+                st.rerun()
+            except Exception as e:
+                try: conn.rollback(); conn.close()
+                except: pass
+                st.error(f"Import gagal, semua perubahan dibatalkan.\n\nDetail: {e}")
+
+
+# ==============================================================================
+# STEP 4 — DONE
+# ==============================================================================
+elif step == 4:
+    res = st.session_state.import_result
+    st.markdown(f"""
+    <div class="result-card">
+        <div class="result-icon">🎉</div>
+        <div class="result-title">Import Berhasil!</div>
+        <div class="result-desc">Data KPI telah berhasil disimpan ke database</div>
+        <div class="result-stats">
+            <div class="result-stat">📊 Realisasi disimpan: <b>{res.get('n_val',0):,}</b></div>
+            <div class="result-stat">🎯 Target disimpan: <b>{res.get('n_tgt',0):,}</b></div>
+            <div class="result-stat">📅 Periode: <b>{res.get('periods','')}</b></div>
+            <div class="result-stat">🔖 Import ID: <b>#{res.get('iid','')}</b></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if res.get("n_err", 0) > 0:
+        st.markdown(f"""
+        <div style="padding:12px 18px;background:var(--warning-bg);border:1px solid var(--warning-border);border-radius:10px;margin-bottom:20px;font-size:13px;color:var(--warning-text);">
+            ⚠️ <b>{res['n_err']} baris dilewati</b> karena gagal validasi — silakan perbaiki dan upload ulang
+        </div>
+        """, unsafe_allow_html=True)
+
+        validated = st.session_state.validated_df
+        if validated is not None:
+            err_rows = validated[validated["status"] == "error"]
+            err_csv  = err_rows[["row_num","branch_name","var_code","periode_raw","value","target","error_message"]]\
+                                .to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Download Laporan Error", data=err_csv,
+                               file_name="error_import.csv", mime="text/csv")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📥 Import Data Baru", use_container_width=True, type="primary"):
+            for k in ["import_step","validated_df","import_done","import_result","last_filename",
+                      "_uploaded_file_bytes","_uploaded_file_name"]:
+                st.session_state.pop(k, None)
+            st.rerun()
+    with col2:
+        st.link_button("🏠 Kembali ke Dashboard", "/", use_container_width=True)
+
