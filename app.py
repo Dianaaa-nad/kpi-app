@@ -1,108 +1,79 @@
 import streamlit as st
-import numpy as np
 import plotly.graph_objects as go
-from db import fetch_cabang, fetch_kpi_variables, fetch_kpi_detail
+from collections import OrderedDict
+from services.calculation_service1 import calculate_period
+
+from db import (
+    fetch_branches,
+    fetch_available_periods,
+    fetch_total_score,
+    fetch_category_scores,
+    fetch_area_avg_category_scores,
+    fetch_score_history,
+    fetch_variable_scores,
+    fetch_kpi_detail,
+)
+from views.import_kpi import show_import
 
 st.set_page_config(layout="wide", page_title="Dashboard KPI", page_icon="🏦")
 
-# ===== DATA PER CABANG =====
-CABANG_DATA = {
-    "KCP Banjarmasin Lambung Mangkurat": {
-        "kpis": [
-            {"label": "Total Score KPI",     "value": "89,8",  "delta": "↑ 21%", "pos": True},
-            {"label": "Score Profitabilitas", "value": "90,2",  "delta": "↑ $53", "pos": True},
-            {"label": "Volume Bisnis",        "value": "88,7",  "delta": "↑ 4%",  "pos": True},
-            {"label": "Customers Base",       "value": "87,9",  "delta": "↑ 114", "pos": True},
-            {"label": "Operasional",          "value": "92,02", "delta": "↑ 21%", "pos": True},
-        ],
-        "chart_values": [2200, 2100, 2400, 3800, 5200, 6800, 7900],
-        "key_results": [
-            {"name": "Profitabilitas",                    "skor": "90,2",  "avg": 89, "color": "green"},
-            {"name": "Volume Bisnis/Kualitas",            "skor": "88,7",  "avg": 88, "color": "blue"},
-            {"name": "Customer Based",                    "skor": "87,9",  "avg": 90, "color": "red"},
-            {"name": "Operasional & People Development",  "skor": "92,02", "avg": 91, "color": "green"},
-        ],
-    },
-    "KC Kayu Tangi": {
-        "kpis": [
-            {"label": "Total Score KPI",     "value": "85,4",  "delta": "↑ 10%", "pos": True},
-            {"label": "Score Profitabilitas", "value": "84,7",  "delta": "↓ $12", "pos": False},
-            {"label": "Volume Bisnis",        "value": "86,3",  "delta": "↑ 6%",  "pos": True},
-            {"label": "Customers Base",       "value": "83,1",  "delta": "↓ 22",  "pos": False},
-            {"label": "Operasional",          "value": "87,50", "delta": "↑ 15%", "pos": True},
-        ],
-        "chart_values": [1800, 2200, 2000, 3100, 4200, 5500, 6100],
-        "key_results": [
-            {"name": "Profitabilitas",                    "skor": "84,7",  "avg": 89, "color": "red"},
-            {"name": "Volume Bisnis/Kualitas",            "skor": "86,3",  "avg": 85, "color": "green"},
-            {"name": "Customer Based",                    "skor": "83,1",  "avg": 86, "color": "red"},
-            {"name": "Operasional & People Development",  "skor": "87,50", "avg": 85, "color": "green"},
-        ],
-    },
-    "KC Tapin": {
-        "kpis": [
-            {"label": "Total Score KPI",     "value": "92,1",  "delta": "↑ 30%", "pos": True},
-            {"label": "Score Profitabilitas", "value": "93,5",  "delta": "↑ $80", "pos": True},
-            {"label": "Volume Bisnis",        "value": "91,2",  "delta": "↑ 12%", "pos": True},
-            {"label": "Customers Base",       "value": "90,8",  "delta": "↑ 200", "pos": True},
-            {"label": "Operasional",          "value": "94,10", "delta": "↑ 35%", "pos": True},
-        ],
-        "chart_values": [3500, 4000, 4800, 6200, 7100, 8500, 9200],
-        "key_results": [
-            {"name": "Profitabilitas",                    "skor": "93,5",  "avg": 89, "color": "green"},
-            {"name": "Volume Bisnis/Kualitas",            "skor": "91,2",  "avg": 88, "color": "green"},
-            {"name": "Customer Based",                    "skor": "90,8",  "avg": 90, "color": "blue"},
-            {"name": "Operasional & People Development",  "skor": "94,10", "avg": 91, "color": "green"},
-        ],
-    },
-    "KC Gatot Subroto": {
-        "kpis": [
-            {"label": "Total Score KPI",     "value": "78,5",  "delta": "↓ 5%",  "pos": False},
-            {"label": "Score Profitabilitas", "value": "77,2",  "delta": "↓ $30", "pos": False},
-            {"label": "Volume Bisnis",        "value": "80,1",  "delta": "↑ 2%",  "pos": True},
-            {"label": "Customers Base",       "value": "76,4",  "delta": "↓ 50",  "pos": False},
-            {"label": "Operasional",          "value": "80,30", "delta": "↓ 8%",  "pos": False},
-        ],
-        "chart_values": [3000, 2800, 2600, 2900, 3100, 2700, 2500],
-        "key_results": [
-            {"name": "Profitabilitas",                    "skor": "77,2",  "avg": 89, "color": "red"},
-            {"name": "Volume Bisnis/Kualitas",            "skor": "80,1",  "avg": 88, "color": "red"},
-            {"name": "Customer Based",                    "skor": "76,4",  "avg": 90, "color": "red"},
-            {"name": "Operasional & People Development",  "skor": "80,30", "avg": 91, "color": "red"},
-        ],
-    },
-    "KC Martapura": {
-        "kpis": [
-            {"label": "Total Score KPI",     "value": "88,0",  "delta": "↑ 18%", "pos": True},
-            {"label": "Score Profitabilitas", "value": "87,5",  "delta": "↑ $45", "pos": True},
-            {"label": "Volume Bisnis",        "value": "89,3",  "delta": "↑ 7%",  "pos": True},
-            {"label": "Customers Base",       "value": "86,6",  "delta": "↑ 90",  "pos": True},
-            {"label": "Operasional",          "value": "88,90", "delta": "↑ 12%", "pos": True},
-        ],
-        "chart_values": [2000, 2500, 3000, 3600, 4800, 5900, 7000],
-        "key_results": [
-            {"name": "Profitabilitas",                    "skor": "87,5",  "avg": 89, "color": "red"},
-            {"name": "Volume Bisnis/Kualitas",            "skor": "89,3",  "avg": 88, "color": "green"},
-            {"name": "Customer Based",                    "skor": "86,6",  "avg": 90, "color": "red"},
-            {"name": "Operasional & People Development",  "skor": "88,90", "avg": 87, "color": "green"},
-        ],
-    },
-}
-
-CABANG_LIST = list(CABANG_DATA.keys())
-
-# ===== SESSION STATE =====
-if "selected_cabang" not in st.session_state:
-    st.session_state.selected_cabang = CABANG_LIST[0]
+# ====================================================================
+# SESSION STATE
+# ====================================================================
+if "selected_branch_id" not in st.session_state:
+    st.session_state.selected_branch_id = None
+if "selected_branch_name" not in st.session_state:
+    st.session_state.selected_branch_name = None
+if "selected_periode" not in st.session_state:
+    st.session_state.selected_periode = None
 if "show_cabang_dd" not in st.session_state:
     st.session_state.show_cabang_dd = False
+if "page" not in st.session_state:
+    st.session_state.page = "dashboard"
 
-# ===== CUSTOM CSS =====
+# ====================================================================
+# ROUTING
+# ====================================================================
+if st.session_state.page == "import":
+    show_import()
+    st.stop()
+
+# ====================================================================
+# LOAD DATA MASTER (cached agar tidak re-query tiap rerun)
+# ====================================================================
+@st.cache_data(ttl=60)
+def load_branches():
+    return fetch_branches()
+
+@st.cache_data(ttl=60)
+def load_periods():
+    return fetch_available_periods()
+
+branches   = load_branches()
+periods    = load_periods()
+
+# Default pilihan pertama
+branch_map = {b["branch_id"]: b for b in branches}
+branch_ids = [b["branch_id"] for b in branches]
+
+if st.session_state.selected_branch_id not in branch_ids and branch_ids:
+    st.session_state.selected_branch_id   = branch_ids[0]
+    st.session_state.selected_branch_name = branches[0]["branch_name"]
+
+if st.session_state.selected_periode not in periods and periods:
+    st.session_state.selected_periode = periods[0]
+
+# Cabang & periode aktif
+active_branch  = branch_map.get(st.session_state.selected_branch_id, {})
+active_periode = st.session_state.selected_periode
+
+# ====================================================================
+# CUSTOM CSS
+# ====================================================================
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
 
-    /* ── Light-theme defaults (CSS variables) ── */
     :root {
         --bg-body: #f5f6fa;
         --bg-card: #fff;
@@ -123,7 +94,6 @@ st.markdown("""
         --cat-header-bg: #fafafa;
         --delta-pos-bg: #f6ffed;  --delta-pos-border: #b7eb8f;
         --delta-neg-bg: #fff2f0;  --delta-neg-border: #ffccc7;
-        /* table column bands – light */
         --col-blue-head: #e8f4fd;   --col-blue-cell: #f0f8ff;
         --col-orange-head: #fff7e6; --col-orange-cell: #fffbe6;
         --col-green-head: #f6ffed;  --col-green-cell: #f6ffed;
@@ -132,7 +102,6 @@ st.markdown("""
         --grid-line: #f5f5f5;
     }
 
-    /* ── Dark-theme overrides ── */
     @media (prefers-color-scheme: dark) {
         :root {
             --bg-body: #0e1117;
@@ -161,38 +130,25 @@ st.markdown("""
             --col-red-head: #2a1215;    --col-red-cell: #2a1215;
             --grid-line: #262930;
         }
-        /* Streamlit internal overrides for dark */
         .stApp, .main, [data-testid="stAppViewContainer"],
         [data-testid="stHeader"], [data-testid="stToolbar"] {
             background-color: var(--bg-body) !important;
         }
-        .stSelectbox > div > div,
-        [data-baseweb="select"] > div {
+        .stSelectbox > div > div, [data-baseweb="select"] > div {
             background-color: var(--bg-card) !important;
             color: var(--text-secondary) !important;
             border-color: var(--border-input) !important;
         }
-        [data-baseweb="menu"] {
-            background-color: var(--bg-card) !important;
-        }
-        [data-baseweb="menu"] li {
-            color: var(--text-secondary) !important;
-        }
-        [data-baseweb="menu"] li:hover {
-            background-color: var(--dd-hover) !important;
-        }
+        [data-baseweb="menu"] { background-color: var(--bg-card) !important; }
+        [data-baseweb="menu"] li { color: var(--text-secondary) !important; }
+        [data-baseweb="menu"] li:hover { background-color: var(--dd-hover) !important; }
     }
 
-    /* ── Base styles ── */
-    html, body, [class*="css"] {
-        font-family: 'Plus Jakarta Sans', sans-serif;
-        background-color: var(--bg-body);
-    }
+    html, body, [class*="css"] { font-family: 'Plus Jakarta Sans', sans-serif; background-color: var(--bg-body); }
     .stApp { background-color: var(--bg-body); }
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
     .main .block-container { padding-top: 2rem; padding-left: 2.5rem; padding-right: 2.5rem; max-width: 100%; }
 
-    /* Title button */
     [data-testid="stButton"] > button[kind="secondary"] {
         background: transparent !important; border: none !important;
         padding: 0 4px !important; font-size: 24px !important; font-weight: 700 !important;
@@ -200,10 +156,9 @@ st.markdown("""
         text-align: left !important; line-height: 1.2 !important; cursor: pointer !important;
     }
     [data-testid="stButton"] > button[kind="secondary"]:hover {
-        color: #1677ff !important; background: transparent !important; border: none !important;
+        color: #1677ff !important; background: transparent !important;
     }
 
-    /* Dropdown card */
     .cabang-dropdown {
         background: var(--bg-card); border: 1px solid var(--border-dropdown);
         border-radius: 14px; padding: 8px;
@@ -215,6 +170,11 @@ st.markdown("""
         padding: 6px 10px 10px 10px;
         border-bottom: 1px solid var(--border-light); margin-bottom: 6px;
     }
+    .cabang-dd-area {
+        font-size: 10px; font-weight: 700; color: var(--text-muted);
+        text-transform: uppercase; letter-spacing: 0.6px;
+        padding: 8px 10px 4px 10px;
+    }
     .cabang-dd-item {
         display: flex; align-items: center; justify-content: space-between;
         padding: 9px 12px; border-radius: 8px;
@@ -225,7 +185,6 @@ st.markdown("""
     .cabang-dd-item-active { background: var(--dd-active); color: #1677ff; font-weight: 600; }
     .cabang-dd-check { color: #1677ff; font-size: 13px; }
 
-    /* KPI card */
     .kpi-card {
         background: var(--bg-card); border: 1px solid var(--border-card);
         border-radius: 12px; padding: 18px 20px;
@@ -236,22 +195,16 @@ st.markdown("""
     .kpi-value { font-size: 26px; font-weight: 700; color: var(--text-primary); line-height: 1.2; margin-bottom: 6px; }
     .kpi-delta-pos { font-size: 12px; color: #52c41a; font-weight: 600; background: var(--delta-pos-bg); border: 1px solid var(--delta-pos-border); border-radius: 20px; padding: 2px 8px; display: inline-block; }
     .kpi-delta-neg { font-size: 12px; color: #ff4d4f; font-weight: 600; background: var(--delta-neg-bg); border: 1px solid var(--delta-neg-border); border-radius: 20px; padding: 2px 8px; display: inline-block; }
+    .kpi-delta-neutral { font-size: 12px; color: var(--text-muted); font-weight: 500; padding: 2px 0px; display: inline-block; }
 
-    /* Section card */
     .section-card { background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 12px; padding: 20px 24px; box-shadow: var(--shadow-card); height: 100%; }
-
-    /* Buttons */
     .stButton > button { border-radius: 8px; font-size: 13px; font-weight: 500; padding: 6px 16px; border: 1px solid var(--border-input); background: var(--bg-card); color: var(--text-soft); transition: all 0.2s; }
     .stButton > button:hover { border-color: #1677ff; color: #1677ff; }
 
-    /* Key-result table – Skor Cabang */
     .key-result-table th:nth-child(3) { background: var(--col-green-head); color: #389e0d !important; }
     .key-result-table td:nth-child(3) { background: var(--col-green-cell); color: #389e0d; font-weight: 600; }
-    /* Key-result table – Avg Region */
     .key-result-table th:nth-child(4) { background: var(--col-blue-head); color: #1677ff !important; }
     .key-result-table td:nth-child(4) { background: var(--col-blue-cell); color: #1677ff; font-weight: 600; }
-
-    /* Tables base */
     .key-result-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .key-result-table th { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 12px; border-bottom: 1px solid var(--border-light); text-align: left; }
     .key-result-table td { padding: 10px 12px; border-bottom: 1px solid var(--border-light); color: var(--text-secondary); font-size: 13px; }
@@ -260,7 +213,6 @@ st.markdown("""
     .score-red   { color: #ff4d4f; font-weight: 600; }
     .score-blue  { color: #1677ff; font-weight: 600; }
 
-    /* KPI detail table */
     .kpi-table-wrapper { background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 12px; padding: 20px 24px; box-shadow: var(--shadow-card); }
     .kpi-detail-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .kpi-detail-table th { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; padding: 10px 10px; text-align: right; }
@@ -270,13 +222,11 @@ st.markdown("""
     .kpi-detail-table td:nth-child(2) { text-align: left; }
     .category-header td { border-top: 1px solid var(--border-light) !important; background: var(--cat-header-bg); color: var(--text-muted) !important; font-weight: 700 !important; font-size: 11px !important; text-align: left !important; letter-spacing: 0.5px; text-transform: uppercase; }
 
-    /* Column color bands */
     .kpi-detail-table th:nth-child(3) { background: var(--col-blue-head); color: #1677ff !important; border-radius: 6px 6px 0 0; }
     .kpi-detail-table th:nth-child(4) { background: var(--col-orange-head); color: #d46b08 !important; border-radius: 6px 6px 0 0; }
     .kpi-detail-table th:nth-child(5) { background: var(--col-green-head); color: #389e0d !important; border-radius: 6px 6px 0 0; }
     .kpi-detail-table th:nth-child(6) { background: var(--col-purple-head); color: #722ed1 !important; border-radius: 6px 6px 0 0; }
     .kpi-detail-table th:nth-child(7) { background: var(--col-red-head); color: #cf1322 !important; border-radius: 6px 6px 0 0; }
-
     .kpi-detail-table tr:not(.category-header) td:nth-child(3) { background: var(--col-blue-cell); color: #1677ff; font-weight: 600; }
     .kpi-detail-table tr:not(.category-header) td:nth-child(4) { background: var(--col-orange-cell); color: #d46b08; font-weight: 600; }
     .kpi-detail-table tr:not(.category-header) td:nth-child(5) { background: var(--col-green-cell); color: #389e0d; font-weight: 600; }
@@ -292,68 +242,219 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ===== ACTIVE DATA =====
-data = CABANG_DATA[st.session_state.selected_cabang]
+# ====================================================================
+# HELPER FORMAT
+# ====================================================================
 
-# ===== PAGE HEADER =====
-col_title, col_export = st.columns([6, 1])
+def fmt_score(val):
+    """Format skor jadi string dengan 2 desimal, atau '-' jika None."""
+    if val is None:
+        return "-"
+    return f"{val:.2f}"
+
+def fmt_delta(delta_pct, pos_is_good=True):
+    """
+    Return (label, css_class) untuk delta.
+    pos_is_good=False untuk variabel NEGATIF (NPF, KOL2).
+    """
+    if delta_pct is None:
+        return "-", "kpi-delta-neutral"
+    arrow = "↑" if delta_pct >= 0 else "↓"
+    label = f"{arrow} {abs(delta_pct):.1f}%"
+    if pos_is_good:
+        css = "kpi-delta-pos" if delta_pct >= 0 else "kpi-delta-neg"
+    else:
+        css = "kpi-delta-neg" if delta_pct >= 0 else "kpi-delta-pos"
+    return label, css
+
+def fmt_real(val, unit=""):
+    """Format nilai realisasi sesuai unit."""
+    if val is None:
+        return "-"
+    if unit in ("RP",):
+        if abs(val) >= 1e9:
+            return f"{val/1e9:.2f}T"
+        elif abs(val) >= 1e6:
+            return f"{val/1e6:.2f}M"
+        elif abs(val) >= 1e3:
+            return f"{val/1e3:.2f}Jt"
+        return f"{val:.2f}"
+    if unit in ("%",):
+        return f"{val:.2f}%"
+    return f"{val:,.2f}"
+
+# ====================================================================
+# PAGE HEADER
+# ====================================================================
+col_title, col_calc, col_import = st.columns([5.5, 1.5, 1])
+
 with col_title:
-    btn_label = f"{st.session_state.selected_cabang}  ▾"
+    btn_label = f"{active_branch.get('branch_name', 'Pilih Cabang')} ▾"
     if st.button(btn_label, key="cabang_title_btn"):
-        st.session_state.show_cabang_dd = not st.session_state.show_cabang_dd   
+        st.session_state.show_cabang_dd = not st.session_state.show_cabang_dd
 
-with col_export:
+with col_calc:
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-    st.button("⬇ Export")
+    if st.button("⚙️ Hitung KPI", use_container_width=True):
+        if active_periode:
+            from db import get_connection
+            try:
+                with st.spinner("Mengkalkulasi skor..."):
+                    with get_connection() as conn:
+                        res = calculate_period(conn, active_periode)
+                    
+                    if res:
+                        st.success(f"Berhasil mengkalkulasi skor KPI periode {active_periode}")
+                    else:
+                        st.warning(f"Tidak ada data untuk dikalkulasi pada {active_periode}")
+            except Exception as e:
+                st.error(f"Gagal mengkalkulasi: {e}")
+        else:
+            st.warning("Pilih periode terlebih dahulu")
 
-# ===== CABANG DROPDOWN =====
+with col_import:
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    if st.button("Import", use_container_width=True):
+        st.session_state.page = "import"
+        st.rerun()
+
+# ====================================================================
+# DROPDOWN CABANG (dikelompokkan per area)
+# ====================================================================
 if st.session_state.show_cabang_dd:
     dd_col, _ = st.columns([2, 5])
     with dd_col:
         st.markdown('<div class="cabang-dropdown">', unsafe_allow_html=True)
         st.markdown('<div class="cabang-dd-header">🏦 &nbsp; Pilih Unit Kerja</div>', unsafe_allow_html=True)
-        for cabang in CABANG_LIST:
-            is_active = cabang == st.session_state.selected_cabang
-            css_class = "cabang-dd-item cabang-dd-item-active" if is_active else "cabang-dd-item"
-            check = "✓" if is_active else ""
-            # render label + check via HTML, button to capture click
-            st.markdown(f'<div class="{css_class}" style="margin-bottom:2px;">'
-                        f'<span>{cabang}</span>'
-                        f'<span class="cabang-dd-check">{check}</span>'
-                        f'</div>', unsafe_allow_html=True)
-            if st.button(cabang, key=f"dd_{cabang}", use_container_width=True):
-                st.session_state.selected_cabang = cabang
-                st.session_state.show_cabang_dd = False
-                st.rerun()
+
+        # Kelompokkan per area
+        area_groups = OrderedDict()
+        for b in branches:
+            area_name = b["area_name"]
+            if area_name not in area_groups:
+                area_groups[area_name] = []
+            area_groups[area_name].append(b)
+
+        for area_name, area_branches in area_groups.items():
+            st.markdown(f'<div class="cabang-dd-area">📍 {area_name}</div>', unsafe_allow_html=True)
+            for b in area_branches:
+                is_active = b["branch_id"] == st.session_state.selected_branch_id
+                css_class = "cabang-dd-item cabang-dd-item-active" if is_active else "cabang-dd-item"
+                check = "✓" if is_active else ""
+                st.markdown(
+                    f'<div class="{css_class}" style="margin-bottom:2px;">'
+                    f'<span>{b["branch_name"]}</span>'
+                    f'<span class="cabang-dd-check">{check}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button(b["branch_name"], key=f"dd_{b['branch_id']}", use_container_width=True):
+                    st.session_state.selected_branch_id   = b["branch_id"]
+                    st.session_state.selected_branch_name = b["branch_name"]
+                    st.session_state.show_cabang_dd = False
+                    st.rerun()
+
         st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-# ===== FILTER TABS =====
-fc1, fc2, _ = st.columns([0.3, 0.5, 2])
+# ====================================================================
+# FILTER — PERIODE
+# ====================================================================
+fc1, _ = st.columns([0.5, 3])
 with fc1:
-    st.selectbox("", ["Bulan Ini", "Tahun Ini"], label_visibility="collapsed")
-with fc2:
-    st.selectbox("", ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"], label_visibility="collapsed")
+    if periods:
+        selected_idx = periods.index(active_periode) if active_periode in periods else 0
+        chosen = st.selectbox(
+            "",
+            options=periods,
+            index=selected_idx,
+            label_visibility="collapsed",
+            key="periode_select",
+        )
+        if chosen != st.session_state.selected_periode:
+            st.session_state.selected_periode = chosen
+            active_periode = chosen
+            st.rerun()
+    else:
+        st.markdown(
+            "<div style='padding:8px;color:var(--text-muted);font-size:13px;'>Belum ada data periode</div>",
+            unsafe_allow_html=True,
+        )
 
 st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
-# ===== KPI CARDS =====
+# ====================================================================
+# LOAD DATA DINAMIS untuk branch & periode aktif
+# ====================================================================
+branch_id     = st.session_state.selected_branch_id
+area_id       = active_branch.get("area_id")
+
+if not branch_id or not active_periode:
+    st.info("Pilih cabang dan periode untuk melihat data.")
+    st.stop()
+
+@st.cache_data(ttl=30)
+def load_dashboard_data(branch_id, area_id, periode):
+    total    = fetch_total_score(branch_id, periode)
+    cat_scores = fetch_category_scores(branch_id, periode)
+    area_avg   = fetch_area_avg_category_scores(area_id, periode) if area_id else {}
+    history    = fetch_score_history(branch_id, limit=7)
+    var_scores = fetch_variable_scores(branch_id, periode)
+    return total, cat_scores, area_avg, history, var_scores
+
+total_data, cat_scores, area_avg, history, var_scores = load_dashboard_data(
+    branch_id, area_id, active_periode
+)
+
+# ====================================================================
+# KPI CARDS
+# ====================================================================
+# Kartu 1: Total Score
+# Kartu 2-5: Skor per kategori (maks 4 kategori)
+cards = []
+
+# Total score
+total_score = total_data.get("total_score")
+total_delta, total_css = fmt_delta(total_data.get("delta_pct"))
+cards.append({
+    "label": "Total Score KPI",
+    "value": fmt_score(total_score),
+    "delta": total_delta,
+    "css"  : total_css,
+})
+
+# Per kategori
+for cat in cat_scores:
+    cat_delta, cat_css = fmt_delta(cat.get("delta_pct"))
+    cards.append({
+        "label": cat["category_name"].title(),
+        "value": fmt_score(cat.get("score")),
+        "delta": cat_delta,
+        "css"  : cat_css,
+    })
+
+# Pastikan selalu 5 kartu (pad dengan kosong jika kategori < 4)
+while len(cards) < 5:
+    cards.append({"label": "-", "value": "-", "delta": "-", "css": "kpi-delta-neutral"})
+cards = cards[:5]
+
 k_cols = st.columns(5, gap="small")
-for i, kpi in enumerate(data["kpis"]):
+for i, kpi in enumerate(cards):
     with k_cols[i]:
-        delta_class = "kpi-delta-pos" if kpi["pos"] else "kpi-delta-neg"
         st.markdown(f"""
         <div class="kpi-card">
             <div class="kpi-label">{kpi['label']}</div>
             <div class="kpi-value">{kpi['value']}</div>
-            <span class="{delta_class}">{kpi['delta']}</span>            
+            <span class="{kpi['css']}">{kpi['delta']}</span>
         </div>
         """, unsafe_allow_html=True)
 
 st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
-# ===== GROWTH CHART + KEY RESULT =====
+# ====================================================================
+# GROWTH CHART + KEY RESULT TABLE
+# ====================================================================
 col_chart, col_table = st.columns([2, 1], gap="medium")
 
 with col_chart:
@@ -361,17 +462,20 @@ with col_chart:
     st.markdown("""
     <div style="display:flex;align-items:center;gap:4px;margin-bottom:16px;">
         <span style="font-weight:700;font-size:15px;color:var(--text-primary);margin-right:12px;">Growth Performance</span>
-        <span class="tab-active">Bulan Ini</span>
-        <span class="tab-inactive">All Performance</span>
+        <span class="tab-active">Total Score</span>
     </div>
     """, unsafe_allow_html=True)
 
-    days = ["Mon\n15", "Tue\n16", "Wed\n17", "Thu\n18", "Fri\n19", "Sat\n20", "Sun\n21"]
-    values = data["chart_values"]
+    if history:
+        x_labels = [r["periode"] for r in history]
+        y_values = [r["total_score"] if r["total_score"] is not None else 0 for r in history]
+    else:
+        x_labels = [active_periode]
+        y_values = [total_score or 0]
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=days, y=values,
+        x=x_labels, y=y_values,
         mode='lines+markers',
         line=dict(color='#1677ff', width=2.5, shape='spline'),
         marker=dict(size=6, color='#1677ff', line=dict(width=2, color='white')),
@@ -381,7 +485,7 @@ with col_chart:
         margin=dict(l=0, r=0, t=0, b=0),
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
         height=220,
-        xaxis=dict(showgrid=False, zeroline=False, tickfont=dict(size=11, color='#8c8c8c'), tickmode='array', tickvals=days),
+        xaxis=dict(showgrid=False, zeroline=False, tickfont=dict(size=11, color='#8c8c8c')),
         yaxis=dict(showgrid=True, gridcolor='#f5f5f5', zeroline=False, tickfont=dict(size=11, color='#8c8c8c'), nticks=6),
         hovermode='x unified',
         hoverlabel=dict(bgcolor='#1677ff', font_color='white', bordercolor='#1677ff'),
@@ -391,22 +495,31 @@ with col_chart:
 
 with col_table:
     rows_html = ""
-    for i, kr in enumerate(data["key_results"], 1):
-        color_class = f"score-{kr['color']}"
+    for i, cat in enumerate(cat_scores, 1):
+        score_val = cat.get("score")
+        avg_val   = area_avg.get(cat["category_id"])
+        # Warna: hijau jika >= avg, merah jika < avg
+        if score_val is not None and avg_val is not None:
+            color_class = "score-green" if score_val >= avg_val else "score-red"
+        else:
+            color_class = "score-blue"
         rows_html += f"""
         <tr>
             <td style="color:var(--text-muted);">{i}</td>
-            <td>{kr['name']}</td>
-            <td class="{color_class}">{kr['skor']}</td>
-            <td>{kr['avg']}</td>
+            <td>{cat['category_name'].title()}</td>
+            <td class="{color_class}">{fmt_score(score_val)}</td>
+            <td>{fmt_score(avg_val)}</td>
         </tr>"""
+
+    if not rows_html:
+        rows_html = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:20px;">Belum ada data</td></tr>'
 
     st.markdown(f"""
     <div class="section-card">
         <div style="font-weight:700;font-size:15px;color:var(--text-primary);margin-bottom:14px;">Key Result Cabang</div>
         <table class="key-result-table">
             <thead><tr>
-                <th>#</th><th>Key Result</th><th>Skor Cabang</th><th>Avg Region</th>
+                <th>#</th><th>Key Result</th><th>Skor Cabang</th><th>Avg Area</th>
             </tr></thead>
             <tbody>{rows_html}</tbody>
         </table>
@@ -415,33 +528,54 @@ with col_table:
 
 st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
-# ===== KPI DETAIL TABLE =====
-kpi_detail_data = fetch_kpi_detail()
+# ====================================================================
+# KPI DETAIL TABLE
+# ====================================================================
+if var_scores:
+    # Kelompokkan per kategori dari variable_scores
+    category_groups = OrderedDict()
+    for row in var_scores:
+        cat_name = row["category_name"]
+        if cat_name not in category_groups:
+            category_groups[cat_name] = []
+        category_groups[cat_name].append(row)
+else:
+    # Fallback: tampilkan variabel tanpa skor jika belum ada kalkulasi
+    fallback = fetch_kpi_detail()
+    category_groups = OrderedDict()
+    for row in fallback:
+        cat_name = row["key_result_name"]
+        if cat_name not in category_groups:
+            category_groups[cat_name] = []
+        category_groups[cat_name].append(row)
 
-# Group variables by category
-from collections import OrderedDict
-category_groups = OrderedDict()
-for row in kpi_detail_data:
-    cat_name = row["key_result_name"]
-    if cat_name not in category_groups:
-        category_groups[cat_name] = []
-    category_groups[cat_name].append(row)
-
-# Build table body HTML
 tbody_html = ""
 for cat_name, variables in category_groups.items():
     tbody_html += f'<tr class="category-header"><td colspan="7"># &nbsp; {cat_name.title()}</td></tr>\n'
     for idx, var in enumerate(variables, 1):
-        weight_pct = f"{var['weight'] * 100:.1f}%" if var['weight'] else "-"
+        # Ambil nilai dari variable_scores jika ada
+        real_val    = var.get("realization_used")
+        target_val  = var.get("target_used")
+        pencapaian  = var.get("pencapaian")
+        weight_used = var.get("weight_used") or var.get("weight")
+        score_val   = var.get("score")
+        unit        = var.get("unit", "")
+
+        real_str   = fmt_real(real_val, unit) if real_val is not None else "-"
+        target_str = fmt_real(target_val, unit) if target_val is not None else "-"
+        pct_str    = f"{pencapaian:.2f}%" if pencapaian is not None else "-"
+        weight_str = f"{weight_used:.1f}%" if weight_used else "-"
+        score_str  = fmt_score(score_val)
+
         tbody_html += (
             f'<tr>'
             f'<td>{idx}</td>'
-            f'<td style="text-align:left">{var["variable_name"].title()}</td>'
-            f'<td></td>'
-            f'<td></td>'
-            f'<td></td>'
-            f'<td>{weight_pct}</td>'
-            f'<td>-</td>'
+            f'<td style="text-align:left">{var["var_name"].title()}</td>'
+            f'<td>{real_str}</td>'
+            f'<td>{target_str}</td>'
+            f'<td>{pct_str}</td>'
+            f'<td>{weight_str}</td>'
+            f'<td>{score_str}</td>'
             f'</tr>\n'
         )
 
@@ -450,10 +584,18 @@ st.markdown(f"""
     <div style="font-weight:700;font-size:15px;color:var(--text-primary);margin-bottom:16px;">Key Performance Indikator</div>
     <table class="kpi-detail-table">
         <thead>
-            <tr><th>#</th><th>Indikator</th><th>Real/Growth</th><th>Target</th><th>Real %</th><th>Bobot</th><th>Skor</th></tr>
+            <tr>
+                <th>#</th>
+                <th>Indikator</th>
+                <th>Real/Growth</th>
+                <th>Target</th>
+                <th>Real %</th>
+                <th>Bobot</th>
+                <th>Skor</th>
+            </tr>
         </thead>
-        <tbody>
-            {tbody_html}</tbody></table>
+        <tbody>{tbody_html}</tbody>
+    </table>
 </div>
 """, unsafe_allow_html=True)
 
