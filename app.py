@@ -1,7 +1,7 @@
 import streamlit as st
 import plotly.graph_objects as go
 from collections import OrderedDict
-from services.calculation_service1 import calculate_period
+from services.calculation_service import calculate_period
 
 from db import (
     fetch_branches,
@@ -201,10 +201,9 @@ st.markdown("""
     .stButton > button { border-radius: 8px; font-size: 13px; font-weight: 500; padding: 6px 16px; border: 1px solid var(--border-input); background: var(--bg-card); color: var(--text-soft); transition: all 0.2s; }
     .stButton > button:hover { border-color: #1677ff; color: #1677ff; }
 
-    .key-result-table th:nth-child(3) { background: var(--col-green-head); color: #389e0d !important; }
-    .key-result-table td:nth-child(3) { background: var(--col-green-cell); color: #389e0d; font-weight: 600; }
-    .key-result-table th:nth-child(4) { background: var(--col-blue-head); color: #1677ff !important; }
-    .key-result-table td:nth-child(4) { background: var(--col-blue-cell); color: #1677ff; font-weight: 600; }
+    .kpi-detail-table th {
+        background: var(--cat-header-bg);
+    }
     .key-result-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .key-result-table th { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 12px; border-bottom: 1px solid var(--border-light); text-align: left; }
     .key-result-table td { padding: 10px 12px; border-bottom: 1px solid var(--border-light); color: var(--text-secondary); font-size: 13px; }
@@ -220,18 +219,40 @@ st.markdown("""
     .kpi-detail-table td { padding: 10px 10px; border-top: 1px solid var(--border-light); color: var(--text-secondary); vertical-align: middle; text-align: right; }
     .kpi-detail-table td:first-child { text-align: center; color: var(--text-muted); width: 30px; }
     .kpi-detail-table td:nth-child(2) { text-align: left; }
-    .category-header td { border-top: 1px solid var(--border-light) !important; background: var(--cat-header-bg); color: var(--text-muted) !important; font-weight: 700 !important; font-size: 11px !important; text-align: left !important; letter-spacing: 0.5px; text-transform: uppercase; }
+   .category-header td {
+    background: #f8f9fa !important;
 
-    .kpi-detail-table th:nth-child(3) { background: var(--col-blue-head); color: #1677ff !important; border-radius: 6px 6px 0 0; }
-    .kpi-detail-table th:nth-child(4) { background: var(--col-orange-head); color: #d46b08 !important; border-radius: 6px 6px 0 0; }
-    .kpi-detail-table th:nth-child(5) { background: var(--col-green-head); color: #389e0d !important; border-radius: 6px 6px 0 0; }
-    .kpi-detail-table th:nth-child(6) { background: var(--col-purple-head); color: #722ed1 !important; border-radius: 6px 6px 0 0; }
-    .kpi-detail-table th:nth-child(7) { background: var(--col-red-head); color: #cf1322 !important; border-radius: 6px 6px 0 0; }
-    .kpi-detail-table tr:not(.category-header) td:nth-child(3) { background: var(--col-blue-cell); color: #1677ff; font-weight: 600; }
-    .kpi-detail-table tr:not(.category-header) td:nth-child(4) { background: var(--col-orange-cell); color: #d46b08; font-weight: 600; }
-    .kpi-detail-table tr:not(.category-header) td:nth-child(5) { background: var(--col-green-cell); color: #389e0d; font-weight: 600; }
-    .kpi-detail-table tr:not(.category-header) td:nth-child(6) { background: var(--col-purple-cell); color: #722ed1; font-weight: 600; }
-    .kpi-detail-table tr:not(.category-header) td:nth-child(7) { background: var(--col-red-cell); color: #cf1322; font-weight: 600; }
+    color: #262626 !important;
+
+    font-size: 13px !important;
+
+    font-weight: 700 !important;
+
+    text-transform: uppercase;
+
+    text-align: left !important;
+
+    border-top: 2px solid #d9d9d9 !important;
+
+    border-bottom: 1px solid #e8e8e8 !important;
+    
+    
+}
+
+    .kpi-detail-table th:nth-child(1),
+    .kpi-detail-table th:nth-child(2),
+    .kpi-detail-table th:nth-child(3),
+    .kpi-detail-table th:nth-child(4),
+    .kpi-detail-table th:nth-child(5),
+    .kpi-detail-table th:nth-child(6),
+    .kpi-detail-table th:nth-child(7) {
+        background: #e8f8f5;
+        color: #262626 !important;
+        font-weight: 600;
+    } 
+    .kpi-detail-table tr:not(.category-header) td {
+        background: var(--bg-card);
+    }
 
     .tab-active { background: #1677ff; color: white; border-radius: 6px; padding: 4px 14px; font-size: 13px; font-weight: 600; display: inline-block; }
     .tab-inactive { color: var(--text-soft); padding: 4px 14px; font-size: 13px; display: inline-block; cursor: pointer; }
@@ -239,6 +260,36 @@ st.markdown("""
     div[data-testid="stDataFrame"] { display: none; }
     [data-testid="stSidebar"] { display: none !important; }
     [data-testid="collapsedControl"] { display: none !important; }
+    
+    .badge-green {
+    background: #f6ffed;
+    color: #389e0d;
+    border: 1px solid #b7eb8f;
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-weight: 700;
+    font-size: 12px;
+}
+
+.badge-yellow {
+    background: #fffbe6;
+    color: #d48806;
+    border: 1px solid #ffe58f;
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-weight: 700;
+    font-size: 12px;
+}
+
+.badge-red {
+    background: #fff1f0;
+    color: #cf1322;
+    border: 1px solid #ffa39e;
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-weight: 700;
+    font-size: 12px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -246,6 +297,30 @@ st.markdown("""
 # HELPER FORMAT
 # ====================================================================
 
+def get_pencapaian_badge(pencapaian):
+    if pencapaian is None:
+        return "-"
+
+    if pencapaian < 95:
+        cls = "badge-red"
+    elif pencapaian < 100:
+        cls = "badge-yellow"
+    else:
+        cls = "badge-green"
+
+    return f'<span class="{cls}">{pencapaian:.2f}%</span>'
+
+def get_pencapaian_color(pencapaian):
+    if pencapaian is None:
+        return "inherit"
+
+    if pencapaian < 95:
+        return "#ff4d4f"   # merah
+    elif pencapaian >= 100:
+        return "#52c41a"   # hijau
+    else:
+        return "#faad14"   # kuning
+    
 def fmt_score(val):
     """Format skor jadi string dengan 2 desimal, atau '-' jika None."""
     if val is None:
@@ -314,7 +389,7 @@ with col_calc:
 
 with col_import:
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-    if st.button("Import", use_container_width=True):
+    if st.button("Import"):
         st.session_state.page = "import"
         st.rerun()
 
@@ -563,7 +638,8 @@ for cat_name, variables in category_groups.items():
 
         real_str   = fmt_real(real_val, unit) if real_val is not None else "-"
         target_str = fmt_real(target_val, unit) if target_val is not None else "-"
-        pct_str    = f"{pencapaian:.2f}%" if pencapaian is not None else "-"
+        pct_color = get_pencapaian_color(pencapaian)
+        pct_str = get_pencapaian_badge(pencapaian)
         weight_str = f"{weight_used:.1f}%" if weight_used else "-"
         score_str  = fmt_score(score_val)
 

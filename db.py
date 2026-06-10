@@ -2,6 +2,7 @@
 db.py — Query functions untuk Dashboard KPI BSI Kalimantan
 """
 
+import streamlit as st
 import mysql.connector
 from mysql.connector import Error
 from contextlib import contextmanager
@@ -11,11 +12,18 @@ from sqlalchemy import create_engine
 # KONFIGURASI KONEKSI
 # ====================================================================
 DB_CONFIG = {
-    "host"    : "127.0.0.1",
-    "user"    : "root",
-    "password": "",
+    # "host"    : "127.0.0.1",
+    # "user"    : "root",
+    # "password": "",
+    # "database": "u194014241_kpi_db",
+    # "charset" : "utf8mb4",
+
+    "host"    : "srv1320.hstgr.io",
+    "user"    : "u194014241_admin_smarto9",
+    "password": "Oi8|oNI0J",
     "database": "u194014241_kpi_db",
-    "charset" : "utf8mb4",
+    "port"    : 3306,
+    "charset" : "utf8mb4",    
 }
 
 # SQLAlchemy engine (digunakan oleh pd.read_sql agar tidak warning)
@@ -296,8 +304,9 @@ def fetch_variable_scores(branch_id: int, periode: str):
         FROM   variable_scores         vs
         JOIN   kpi_variables           v  ON vs.variable_id = v.variable_id
         JOIN   kpi_variable_categories c  ON v.category_id  = c.category_id
-        WHERE  vs.branch_id = %s
-          AND  vs.periode   = %s
+        JOIN variable_configs vc ON vc.variable_id = vs.variable_id  
+        WHERE vc.is_displayed = 1 AND  vs.branch_id = %s
+          AND  vs.periode   = %s 
         ORDER  BY c.category_id, v.variable_id
     """
     return query(sql, (branch_id, periode))
@@ -309,16 +318,19 @@ def fetch_kpi_detail():
     Dipakai jika belum ada data variable_scores.
     """
     sql = """
-        SELECT
-            c.category_name AS key_result_name,
-            v.variable_id,
-            v.var_name,
-            v.var_code,
-            vc.formula_type
-        FROM   kpi_variables           v
-        JOIN   kpi_variable_categories c  ON v.category_id  = c.category_id
-        LEFT JOIN variable_configs     vc ON vc.variable_id = v.variable_id
-        ORDER  BY c.category_id, v.variable_id
+SELECT
+    c.category_name AS key_result_name,
+    v.variable_id,
+    v.var_name,
+    v.var_code,
+    vc.formula_type
+    FROM kpi_variables v
+    JOIN kpi_variable_categories c
+        ON v.category_id = c.category_id
+    JOIN variable_configs vc
+        ON vc.variable_id = v.variable_id
+    WHERE vc.is_displayed = 1
+    ORDER BY c.category_id, v.variable_id
     """
     return query(sql)
 

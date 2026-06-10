@@ -16,15 +16,13 @@ import numpy as np
 from datetime import date
 
 from db import get_engine, get_connection
-from services.formula_services1 import (
+from services.formula_services import (
     calculate_combine,
     calculate_ratio,
     calculate_growth,
 )
 
 FORMULA_TYPES = {"combine", "percentation", "growth"}
-
-MAX_PENCAPAIAN = 150  # cap pencapaian di 150%
 
 
 # ====================================================================
@@ -46,6 +44,7 @@ def load_realisasi_wide(engine, periode: date, baseline_periode: date):
         engine,
         params={"p": str(periode)},
     ).rename(columns={"val": periode_col})
+    current_df = current_df.drop_duplicates(subset=["kdo_bsi", "var_code"], keep="last")
 
     baseline_df = pd.read_sql(
         """
@@ -58,6 +57,7 @@ def load_realisasi_wide(engine, periode: date, baseline_periode: date):
         engine,
         params={"p": str(baseline_periode)},
     ).rename(columns={"val": baseline_col})
+    baseline_df = baseline_df.drop_duplicates(subset=["kdo_bsi", "var_code"], keep="last")
 
     merged = current_df.merge(
         baseline_df[["kdo_bsi", "var_code", baseline_col]],
@@ -71,7 +71,8 @@ def load_realisasi_wide(engine, periode: date, baseline_periode: date):
 def load_configs(engine, periode: date):
     return pd.read_sql(
         """
-        SELECT config_id, variable_id, periode, formula_type
+        SELECT config_id, variable_id, periode, formula_type,
+               is_displayed, max_weight
         FROM   variable_configs
         WHERE  periode = %(p)s
         """,
@@ -89,7 +90,7 @@ def load_variables(engine):
 
 
 def load_targets(engine, periode: date):
-    return pd.read_sql(
+    df = pd.read_sql(
         """
         SELECT b.kdo_bsi, v.var_code, t.target_value
         FROM   kpi_targets   t
@@ -100,6 +101,7 @@ def load_targets(engine, periode: date):
         engine,
         params={"p": str(periode)},
     )
+    return df.drop_duplicates(subset=["kdo_bsi", "var_code"], keep="last")
 
 
 def load_branches(engine):
@@ -140,10 +142,11 @@ def calculate_achievement(realization, target, var_type="POSITIVE"):
     return 0.0
 
 
-def calculate_score(achievement, weight):
+def calculate_score(achievement, weight, max_weight):
     if achievement is None or pd.isna(achievement) or weight is None:
         return 0.0
-    capped = max(0.0, min(achievement, MAX_PENCAPAIAN))
+    cap = float(max_weight) if (max_weight is not None and not pd.isna(max_weight)) else 100.0
+    capped = max(0.0, min(achievement, cap))
     return (capped / 100) * weight
 
 
@@ -185,20 +188,6 @@ def calculate_period(conn, periode):
     period_cols = [periode_col]
 
     # ── 2. Jalankan Formula ──────────────────────────────────────────
-    # Urutan penting: combine → ratio → growth
-    #
-    # [OPSI A] baseline_col diteruskan ke calculate_combine() dan
-    # calculate_ratio() agar variabel yang merupakan hasil combine
-    # (misal KONSUMER = GRIYA+OTO+PENSIUN+MITRAGUNA) sudah punya
-    # nilai baseline Desember yang benar sebelum calculate_growth()
-    # dijalankan.
-    #
-    # Tanpa Opsi A (bug lama):
-    #   KONSUMER[Des] = NaN  → CONSUMER_GROWTH = current - NaN = NaN ✗
-    #
-    # Dengan Opsi A:
-    #   KONSUMER[Des] = GRIYA[Des]+OTO[Des]+PENSIUN[Des]+MITRAGUNA[Des]
-    #   CONSUMER_GROWTH = KONSUMER[Mar] - KONSUMER[Des] ✓
     realisasi_df = calculate_combine(
         realisasi_df, configs, components, variables,
         period_cols, baseline_col=baseline_col,
@@ -212,96 +201,103 @@ def calculate_period(conn, periode):
         period_cols, baseline_col,
     )
 
-    # ── 3. Pisah: formula config vs direct config ─────────────────────
-    formula_configs = configs[
-        configs["formula_type"].isin(FORMULA_TYPES)
-    ].copy()
+    # ── 3. Hitung Score ──────────────────────────────────────────────
+    # FIX: tidak lagi memisah formula_configs vs direct_configs.
+    #
+    # Pemisahan lama menggunakan:
+    #   formula_configs = configs[configs["formula_type"].isin(FORMULA_TYPES)]
+    #   direct_configs  = configs[~configs["formula_type"].isin(FORMULA_TYPES)]
+    #
+    # Bug: pandas .isin() mengembalikan False untuk NaN/None, dan ~False = True,
+    # sehingga baris dengan formula_type=NULL masuk ke direct_configs. Tapi
+    # karena closure _score_configs di-call dua kali dan all_scores di-append
+    # keduanya, config yang formula_type-nya tidak terduga bisa diproses dua
+    # kali → baris duplikat di all_scores → total_score double.
+    #
+    # Solusi: loop satu kali saja. formula_type_used diisi jika nilainya
+    # termasuk FORMULA_TYPES, None jika tidak (direct/raw).
 
-    direct_configs = configs[
-        ~configs["formula_type"].isin(FORMULA_TYPES)
-    ].copy()
-
-    print(f"[INFO] {len(formula_configs)} formula configs | "
-          f"{len(direct_configs)} direct configs")
-
-    # ── 4. Hitung Score ──────────────────────────────────────────────
     all_scores = []
 
-    def _score_configs(cfg_df, use_formula_result: bool):
-        for _, config in cfg_df.iterrows():
-            config_id    = config["config_id"]
-            variable_id  = config["variable_id"]
-            formula_type = config["formula_type"] if use_formula_result else None
+    for _, config in configs.iterrows():
+        config_id         = config["config_id"]
+        variable_id       = config["variable_id"]
+        is_displayed      = bool(config["is_displayed"])
+        formula_type      = config["formula_type"]
+        max_weight        = config["max_weight"]
 
-            var_row = variables[variables["variable_id"] == variable_id]
-            if var_row.empty:
-                continue
+        # formula_type_used: hanya isi jika termasuk enum yang valid
+        formula_type_used = (
+            formula_type
+            if (isinstance(formula_type, str) and formula_type in FORMULA_TYPES)
+            else None
+        )
 
-            var_code = var_row.iloc[0]["var_code"]
-            var_type = var_row.iloc[0]["type"]
+        var_row = variables[variables["variable_id"] == variable_id]
+        if var_row.empty:
+            continue
 
-            result_df = realisasi_df[
-                realisasi_df["var_code"] == var_code
-            ][["kdo_bsi", periode_col]].copy()
+        var_code = var_row.iloc[0]["var_code"]
+        var_type = var_row.iloc[0]["type"]
 
-            print("DEBUG REALISASI")
-            print(result_df[
-                result_df["kdo_bsi"]== "ID0010016"
-            ].to_string())
+        result_df = realisasi_df[
+            realisasi_df["var_code"] == var_code
+        ][["kdo_bsi", periode_col]].copy()
 
-            if result_df.empty:
-                print(f"  [WARN] Tidak ada data realisasi untuk {var_code}")
-                continue
+        if result_df.empty:
+            print(f"  [WARN] Tidak ada data realisasi untuk {var_code}")
+            continue
 
-            result_df["realization_used"] = pd.to_numeric(
-                result_df[periode_col], errors="coerce"
-            )
+        result_df["realization_used"] = pd.to_numeric(
+            result_df[periode_col], errors="coerce"
+        )
 
-            tgt = targets[targets["var_code"] == var_code][
-                ["kdo_bsi", "target_value"]
-            ]
-            result_df = result_df.merge(tgt, on="kdo_bsi", how="left")
-            result_df["target_used"] = pd.to_numeric(
-                result_df["target_value"], errors="coerce"
-            )
+        tgt = targets[targets["var_code"] == var_code][
+            ["kdo_bsi", "target_value"]
+        ]
+        result_df = result_df.merge(tgt, on="kdo_bsi", how="left")
+        result_df["target_used"] = pd.to_numeric(
+            result_df["target_value"], errors="coerce"
+        )
 
-            result_df = result_df.merge(
-                branches[["kdo_bsi", "branch_id", "condition_id"]],
-                on="kdo_bsi",
-                how="left",
-            )
+        result_df = result_df.merge(
+            branches[["kdo_bsi", "branch_id", "condition_id"]],
+            on="kdo_bsi",
+            how="left",
+        )
 
-            w_map = weights_df[weights_df["config_id"] == config_id][
-                ["condition_id", "weight"]
-            ]
-            result_df = result_df.merge(w_map, on="condition_id", how="left")
-            result_df["weight_used"] = result_df["weight"].fillna(0)
+        w_map = weights_df[weights_df["config_id"] == config_id][
+            ["condition_id", "weight"]
+        ]
+        result_df = result_df.merge(w_map, on="condition_id", how="left")
+        result_df["weight_used"] = result_df["weight"].fillna(0)
 
-            result_df["pencapaian"] = result_df.apply(
-                lambda r: calculate_achievement(
-                    r["realization_used"], r["target_used"], var_type
-                ),
-                axis=1,
-            )
-            result_df["score"] = result_df.apply(
-                lambda r: calculate_score(r["pencapaian"], r["weight_used"]),
-                axis=1,
-            )
+        result_df["pencapaian"] = result_df.apply(
+            lambda r: calculate_achievement(
+                r["realization_used"], r["target_used"], var_type
+            ),
+            axis=1,
+        )
+        result_df["score"] = result_df.apply(
+            lambda r, mw=max_weight: calculate_score(
+                r["pencapaian"], r["weight_used"], mw
+            ),
+            axis=1,
+        )
 
-            result_df["variable_id"]       = variable_id
-            result_df["formula_type_used"] = formula_type
-            result_df["periode"]           = periode
+        result_df["variable_id"]       = variable_id
+        result_df["formula_type_used"] = formula_type_used
+        result_df["periode"]           = periode
+        result_df["is_displayed"]      = is_displayed
 
-            all_scores.append(
-                result_df[[
-                    "branch_id", "variable_id", "periode",
-                    "realization_used", "target_used", "pencapaian",
-                    "weight_used", "score", "formula_type_used",
-                ]]
-            )
-
-    _score_configs(formula_configs, use_formula_result=True)
-    _score_configs(direct_configs,  use_formula_result=False)
+        all_scores.append(
+            result_df[[
+                "branch_id", "variable_id", "periode",
+                "realization_used", "target_used", "pencapaian",
+                "weight_used", "score", "formula_type_used",
+                "is_displayed",
+            ]]
+        )
 
     if not all_scores:
         print("[SKIP] Tidak ada skor yang dihasilkan")
@@ -311,9 +307,46 @@ def calculate_period(conn, periode):
     final_scores = final_scores[final_scores["branch_id"].notna()].copy()
     final_scores["branch_id"] = final_scores["branch_id"].astype(int)
 
-    print(f"[INFO] Total skor: {len(final_scores)}")
+    print(f"[INFO] Total skor: {len(final_scores)} baris | "
+          f"is_displayed=True: {final_scores['is_displayed'].sum()} baris")
 
-    # ── 5. Simpan ke DB ──────────────────────────────────────────────
+    # ── DEBUG: tampilkan rincian skor satu cabang sebelum disimpan ──────
+    sample_branch_id = int(final_scores["branch_id"].iloc[2])
+    sample_branch    = final_scores[final_scores["branch_id"] == sample_branch_id].copy()
+
+    displayed   = sample_branch[sample_branch["is_displayed"] == True]
+    undisplayed = sample_branch[sample_branch["is_displayed"] == False]
+
+    # Lookup var_code untuk branch_id sample (join ke variables via variable_id)
+    var_lookup = variables.set_index("variable_id")["var_code"].to_dict()
+    displayed_debug = displayed.copy()
+    displayed_debug["var_code"] = displayed_debug["variable_id"].map(var_lookup)
+
+    print(f"\n{'='*60}")
+    print(f"[DEBUG] Sample branch_id : {sample_branch_id}")
+    print(f"[DEBUG] Total variabel   : {len(sample_branch)} "
+          f"(is_displayed=True: {len(displayed)}, False: {len(undisplayed)})")
+    print(f"\n[DEBUG] Variabel yang MASUK ke kpi_score_records (is_displayed=True):")
+    print(
+        displayed_debug[["var_code", "variable_id", "pencapaian", "weight_used", "score"]]
+        .sort_values("var_code")
+        .to_string(index=False)
+    )
+    print(f"\n[DEBUG] total_score cabang ini : "
+          f"{displayed['score'].sum():.6f}")
+    if len(undisplayed) > 0:
+        undisplayed_debug = undisplayed.copy()
+        undisplayed_debug["var_code"] = undisplayed_debug["variable_id"].map(var_lookup)
+        print(f"\n[DEBUG] Variabel yang TIDAK masuk (is_displayed=False):")
+        print(
+            undisplayed_debug[["var_code", "variable_id", "score"]]
+            .sort_values("var_code")
+            .to_string(index=False)
+        )
+    print(f"{'='*60}\n")
+    # ── END DEBUG ────────────────────────────────────────────────────
+
+    # ── 4. Simpan ke DB ──────────────────────────────────────────────
     n_scores  = save_variable_scores(conn, final_scores)
     n_records = save_kpi_score_records(conn, final_scores, branches, periode)
     conn.commit()
@@ -328,6 +361,10 @@ def calculate_period(conn, periode):
 # ====================================================================
 
 def save_variable_scores(conn, final_scores: pd.DataFrame) -> int:
+    """
+    UPSERT semua variable_scores — termasuk variabel is_displayed=False
+    agar data audit tetap lengkap.
+    """
     sql = """
         INSERT INTO variable_scores
             (branch_id, variable_id, periode,
@@ -375,15 +412,26 @@ def save_kpi_score_records(
     branches: pd.DataFrame,
     periode: date,
 ) -> int:
+    """
+    Hitung total_score per cabang dan per area.
+    Hanya variabel dengan is_displayed=True yang dijumlahkan.
+    """
     sql_upsert = """
         INSERT INTO kpi_score_records (entity_id, entity_type, periode, total_score)
         VALUES (%s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE total_score = VALUES(total_score)
     """
 
+    displayed_scores = final_scores[final_scores["is_displayed"] == True].copy()
+
+    if displayed_scores.empty:
+        print("[WARN] Tidak ada skor dengan is_displayed=True")
+        return 0
+
     # ── Per Cabang ───────────────────────────────────────────────────
     branch_totals = (
-        final_scores.groupby("branch_id")["score"]
+        displayed_scores
+        .groupby("branch_id")["score"]
         .sum()
         .reset_index()
         .rename(columns={"score": "total_score"})
@@ -398,9 +446,8 @@ def save_kpi_score_records(
 
     # ── Per Area ─────────────────────────────────────────────────────
     area_totals = (
-        branch_totals.merge(
-            branches[["branch_id", "area_id"]], on="branch_id", how="left"
-        )
+        branch_totals
+        .merge(branches[["branch_id", "area_id"]], on="branch_id", how="left")
         .groupby("area_id")["total_score"]
         .mean()
         .reset_index()
