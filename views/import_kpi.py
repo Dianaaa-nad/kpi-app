@@ -3,24 +3,35 @@ import pandas as pd
 import pymysql
 import io
 from datetime import datetime, date
-from services.calculation_service1 import calculate_period
+from services.calculation_service import calculate_period
 
 # ==============================================================================
 # PAGE CONFIG
 # ==============================================================================
 def show_import():
 
-    st.title("📥 Import Data KPI")
+    # st.set_page_config(
+    #     layout="wide",
+    #     page_title="Import Data KPI",
+    #     page_icon="📥"
+    # )
 
     # ==============================================================================
     # DATABASE CONFIG
     # ==============================================================================
     DB_CONFIG = {
-        "host": "127.0.0.1",
-        "user": "root",
-        "password": "",
+        "host"    : "srv1320.hstgr.io",
+        "user"    : "u194014241_admin_smarto9",
+        "password": "Oi8|oNI0J",
         "database": "u194014241_kpi_db",
-        "charset": "utf8mb4",
+        "port"    : 3306,
+        "charset" : "utf8mb4",    
+
+        # "host"    : "127.0.0.1",
+        # "user"    : "root",
+        # "password": "",
+        # "database": "u194014241_kpi_db",
+        # "charset" : "utf8mb4",
     }
 
     # ==============================================================================
@@ -103,8 +114,8 @@ def show_import():
         return pymysql.connect(
             **DB_CONFIG,
             cursorclass=pymysql.cursors.DictCursor
-        )
-    
+        )    
+
     def load_lookup_data(conn):
         with conn.cursor() as cur:
 
@@ -160,6 +171,20 @@ def show_import():
     # ==============================================================================
     # VALIDATION
     # ==============================================================================
+    MONTH_MAP = {
+        "jan": 1,
+        "feb": 2,
+        "mar": 3,
+        "apr": 4,
+        "mei": 5,
+        "jun": 6,
+        "jul": 7,
+        "agu": 8,
+        "sep": 9,
+        "okt": 10,
+        "nov": 11,
+        "des": 12
+    }
     def validate_rows(df, branches, variables):
 
         results = []
@@ -207,24 +232,47 @@ def show_import():
                 errors.append("value bukan angka")
 
             # Target validation
-            target = None
-
-            try:
-                target_raw = row.get("target")
-
-                if pd.notna(target_raw) and str(target_raw).strip() != "":
-                    target = float(target_raw)
-
-            except:
-                errors.append("target bukan angka")
-
             results.append({
                 "row_num": idx + 2,
                 "kdo_bsi": kdo_bsi,
                 "var_code": var_code,
+                "branch_id": branch_id,
+                "variable_id": variable_id,
                 "periode": selected_period,
                 "value": value,
-                "target": target,
+                "status": "error" if errors else "ok",
+                "error_message": "; ".join(errors)
+            })
+
+        return pd.DataFrame(results)
+    
+
+    def validate_target_rows(
+        df,
+        branches,
+        variables,
+        selected_year
+    ):
+        results = []
+
+        for idx, row in df.iterrows():
+
+            kdo_bsi = str(row["kdo_bsi"]).strip()
+            var_code = str(row["var_code"]).strip()
+
+            errors = []
+
+            branch_id = branches.get(kdo_bsi.upper())
+            variable_id = variables.get(var_code.upper())
+
+            if branch_id is None:
+                errors.append("Cabang tidak ditemukan")
+
+            if variable_id is None:
+                errors.append("Variable tidak ditemukan")
+
+            results.append({
+                "row_num": idx + 2,
                 "branch_id": branch_id,
                 "variable_id": variable_id,
                 "status": "error" if errors else "ok",
@@ -232,7 +280,51 @@ def show_import():
             })
 
         return pd.DataFrame(results)
+    
+    def transform_targets(
+        df,
+        branches,
+        variables,
+        selected_year
+    ):
+        records = []
 
+        for _, row in df.iterrows():
+
+            branch_id = branches.get(
+                str(row["kdo_bsi"]).strip().upper()
+            )
+
+            variable_id = variables.get(
+                str(row["var_code"]).strip().upper()
+            )
+
+            if not branch_id or not variable_id:
+                continue
+
+            for month_name, month_num in MONTH_MAP.items():
+
+                if month_name not in df.columns:
+                    continue
+
+                value = row.get(month_name)
+
+                if pd.isna(value):
+                    continue
+
+                records.append({
+                    "branch_id": branch_id,
+                    "variable_id": variable_id,
+                    "periode": date(
+                        selected_year,
+                        month_num,
+                        1
+                    ),
+                    "target_value": float(value)
+                })
+
+        return pd.DataFrame(records)
+            
     # ==============================================================================
     # UPSERT REALIZATION
     # ==============================================================================
@@ -275,13 +367,15 @@ def show_import():
     # ==============================================================================
     # UPSERT TARGETS
     # ==============================================================================
-    def upsert_targets(conn, ok_df):
-
-        rows = ok_df[ok_df["target"].notna()]
+    def upsert_targets_bulk(
+        conn,
+        target_rows
+    ):
+        rows = target_rows[target_rows["target_value"].notna()]
 
         if rows.empty:
             return 0
-
+        
         sql = """
         INSERT INTO kpi_targets
         (
@@ -295,47 +389,76 @@ def show_import():
         ON DUPLICATE KEY UPDATE
             target_value = VALUES(target_value)
         """
-
         data = [
             (
                 r.branch_id,
                 r.variable_id,
                 r.periode,
-                r.target
+                r.target_value
             )
-            for r in rows.itertuples()
+            for r in target_rows.itertuples()
         ]
-
         with conn.cursor() as cur:
             cur.executemany(sql, data)
 
         return len(data)
+        
 
     # ==============================================================================
     # TEMPLATE EXCEL
     # ==============================================================================
-    SAMPLE_ROWS = [
+    SAMPLE_REALIZATION = [
         {
             "kdo_bsi": "ID0010023",
             "var_code": "CM",
-            "value": 1500000000,
-            "target": 2000000000
+            "value": 1500000000,            
         },
         {
             "kdo_bsi": "ID0010041",
             "var_code": "DPK",
-            "value": 5000000000,
-            "target": 7000000000
+            "value": 5000000000,            
         }
     ]
+    
+    SAMPLE_TARGET = [
+    {
+        "kdo_bsi": "ID0010023",
+        "var_code": "CM",
+        "jan": 1000000000,
+        "feb": 1200000000,
+        "mar": 1300000000,
+        "apr": None,
+        "mei": None,
+        "jun": None,
+        "jul": None,
+        "agu": None,
+        "sep": None,
+        "okt": None,
+        "nov": None,
+        "des": None,
+    }
+]
 
-    def make_template_excel():
+    def make_template_excel_realization():
 
         output = io.BytesIO()
 
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
 
-            pd.DataFrame(SAMPLE_ROWS).to_excel(
+            pd.DataFrame(SAMPLE_REALIZATION).to_excel(
+                writer,
+                index=False,
+                sheet_name="Template KPI"
+            )
+
+        return output.getvalue()
+    def make_template_excel_target():
+
+        output = io.BytesIO()
+
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+
+            pd.DataFrame(SAMPLE_TARGET).to_excel(
                 writer,
                 index=False,
                 sheet_name="Template KPI"
@@ -354,8 +477,10 @@ def show_import():
 
     # ==============================================================================
     # PAGE HEADER
-    # ==============================================================================    
+    # ==============================================================================
+    st.title("📥 Import Data KPI")
     st.caption("Upload file Excel KPI cabang")
+
 
     # ==============================================================================
     # TEMPLATE DOWNLOAD
@@ -364,16 +489,27 @@ def show_import():
 
         st.markdown("### 📄 Download Template")
 
-        st.download_button(
-            label="⬇️ Download Template Excel",
-            data=make_template_excel(),
-            file_name="template_import_kpi.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-        st.markdown("---")
         col1, col2 = st.columns(2)
+
+        with col1:
+            st.download_button(
+                "⬇️ Template Realisasi",
+                data=make_template_excel_realization(),
+                file_name="template_import_realisasi.xlsx"
+            )
+
+        with col2:
+            st.download_button(
+                "⬇️ Template Target",
+                data=make_template_excel_target(),
+                file_name="template_import_target.xlsx"
+            )
     
-    
+
+    # ==============================================================================
+    # FILE UPLOAD
+    # ==============================================================================
+    st.markdown("### 📤 Upload Data Realisasi")
     bulan_list = [
         "Januari","Februari","Maret","April",
         "Mei","Juni","Juli","Agustus",
@@ -400,26 +536,22 @@ def show_import():
         1
     )
     
-    # ==============================================================================
-    # FILE UPLOAD
-    # ==============================================================================
-    st.markdown("### 📤 Upload File Excel")
-
-    uploaded = st.file_uploader(
+    realisasi_uploaded = st.file_uploader(
         "Upload File Excel",
-        type=["xlsx"]
+        type=["xlsx"],
+        key="upload_realisasi"
     )
 
     # ==============================================================================
     # PROCESS FILE
     # ==============================================================================
-    if uploaded:
+    if realisasi_uploaded:
 
         try:
 
             # Read excel
             df_raw = pd.read_excel(
-                uploaded,
+                realisasi_uploaded,
                 engine="openpyxl"
             )
 
@@ -434,8 +566,7 @@ def show_import():
             required_columns = {
                 "kdo_bsi",
                 "var_code",
-                "value",
-                "target"
+                "value",                
             }
 
             missing = required_columns - set(df_raw.columns)
@@ -454,11 +585,6 @@ def show_import():
             # Convert numeric safely
             df_raw["value"] = pd.to_numeric(
                 df_raw["value"],
-                errors="coerce"
-            )
-
-            df_raw["target"] = pd.to_numeric(
-                df_raw["target"],
                 errors="coerce"
             )
 
@@ -570,8 +696,7 @@ def show_import():
                         "kdo_bsi",
                         "var_code",
                         "periode",
-                        "value",
-                        "target"
+                        "value",                        
                     ]
                 ]
 
@@ -598,11 +723,6 @@ def show_import():
                             ok_rows
                         )
 
-                        n_target = upsert_targets(
-                            conn,
-                            ok_rows
-                        )
-
                         # COMMIT dulu sebelum kalkulasi — supaya
                         # load_calculation_data membaca realisasi & target
                         # yang baru saja diinsert, bukan data lama.
@@ -619,8 +739,7 @@ def show_import():
                             f"""
                             Import berhasil!
 
-                            Realisasi: {n_real}
-                            Target: {n_target}
+                            Realisasi: {n_real}                            
                             """
                         )
 
@@ -641,10 +760,88 @@ def show_import():
                     Tidak ada data valid untuk diimport
                 </div>
                 """, unsafe_allow_html=True)
-            
-            
-            
 
         except Exception as e:
 
             st.error(f"Gagal membaca file Excel: {e}")
+    
+    st.markdown("---")
+    st.markdown("### 📤 Upload Data Target")
+    # st.markdown("---")
+    
+    target_uploaded = st.file_uploader(
+        "Upload File Excel",
+        type=["xlsx"],
+        key="upload_target"
+    )
+    
+    if target_uploaded:
+
+        df_raw = pd.read_excel(
+            target_uploaded,
+            engine="openpyxl"
+        )
+
+        df_raw.columns = (
+            df_raw.columns
+            .str.strip()
+            .str.lower()
+        )
+
+        conn = get_connection()
+
+        branches, variables = load_lookup_data(conn)
+
+        conn.close()
+
+        target_rows = transform_targets(
+            df_raw,
+            branches,
+            variables,
+            tahun
+        )
+
+        st.success(
+            f"{len(target_rows)} target berhasil diproses"
+        )
+
+        st.dataframe(
+            target_rows,
+            use_container_width=True
+        )
+
+        if st.button(
+            "✅ Submit Target",
+            type="primary",
+            use_container_width=True,
+            key="submit_target"
+        ):
+
+            try:
+
+                conn = get_connection()
+
+                n_target = upsert_targets_bulk(
+                    conn,
+                    target_rows
+                )
+
+                conn.commit()
+                conn.close()
+
+                st.success(
+                    f"{n_target} target berhasil diimport"
+                )
+
+            except Exception as e:
+
+                try:
+                    conn.rollback()
+                    conn.close()
+                except:
+                    pass
+
+                st.error(
+                    f"Gagal import target: {e}"
+                )
+       
