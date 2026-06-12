@@ -518,14 +518,14 @@ def show_import():
 
     with col1:
         bulan = st.selectbox(
-            "Bulan",
+            "Bulan (Untuk mengatur Bulan Realisasi Saja)",
             bulan_list,
             index=date.today().month - 1
         )
 
     with col2:
         tahun = st.selectbox(
-            "Tahun",
+            "Tahun (Untuk mengatur Tahun Target dan Realisasi)",
             range(2024, 2031),
             index=2
         )
