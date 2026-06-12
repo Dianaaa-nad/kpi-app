@@ -130,7 +130,7 @@ def fetch_total_score(branch_id: int, periode: str):
     current = query(
         """
         SELECT total_score FROM kpi_score_records
-        WHERE  entity_id = %s AND entity_type = 'branch' AND periode = %s
+        WHERE  entity_id = %s AND periode = %s
         """,
         (branch_id, periode),
         one=True,
@@ -140,7 +140,7 @@ def fetch_total_score(branch_id: int, periode: str):
         """
         SELECT total_score, periode
         FROM   kpi_score_records
-        WHERE  entity_id = %s AND entity_type = 'branch' AND periode < %s
+        WHERE  entity_id = %s AND periode < %s
         ORDER  BY periode DESC
         LIMIT  1
         """,
@@ -191,7 +191,7 @@ def fetch_category_scores(branch_id: int, periode: str):
     prev_row = query(
         """
         SELECT periode FROM kpi_score_records
-        WHERE  entity_id = %s AND entity_type = 'branch' AND periode < %s
+        WHERE  entity_id = %s AND periode < %s
         ORDER  BY periode DESC LIMIT 1
         """,
         (branch_id, periode),
@@ -261,7 +261,7 @@ def fetch_score_history(branch_id: int, limit: int = 7):
     sql = """
         SELECT periode, total_score
         FROM   kpi_score_records
-        WHERE  entity_id = %s AND entity_type = 'branch'
+        WHERE  entity_id = %s
         ORDER  BY periode DESC
         LIMIT  %s
     """
