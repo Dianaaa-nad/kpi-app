@@ -35,6 +35,65 @@ if "page" not in st.session_state:
 # ROUTING
 # ====================================================================
 if st.session_state.page == "import":
+    # ── Verifikasi password sebelum masuk fitur Import ──
+    if "import_authenticated" not in st.session_state:
+        st.session_state.import_authenticated = False
+
+    if not st.session_state.import_authenticated:
+        st.markdown("""
+        <style>
+            .auth-container {
+                max-width: 420px;
+                margin: 80px auto;
+                padding: 40px 36px;
+                background: var(--bg-card, #fff);
+                border: 1px solid var(--border-card, #f0f2f5);
+                border-radius: 16px;
+                box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+                text-align: center;
+            }
+            .auth-icon { font-size: 48px; margin-bottom: 12px; }
+            .auth-title { font-size: 20px; font-weight: 700; color: var(--text-primary, #1a1a2e); margin-bottom: 4px; }
+            .auth-subtitle { font-size: 13px; color: var(--text-muted, #8c8c8c); margin-bottom: 24px; }
+            .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #1677ff;
+            font-size: 13px;
+            font-weight: 500;
+            text-decoration: none;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .back-link:hover {
+            color: #0958d9;
+        }
+
+        </style>
+        """, unsafe_allow_html=True)
+
+        st.markdown('<a class="back-link" href="/" target="_self">← Kembali ke Dashboard</a>', unsafe_allow_html=True)
+
+        st.markdown("""
+        <div class="auth-container">
+            <div class="auth-icon">🔒</div>
+            <div class="auth-title">Akses Terbatas</div>
+            <div class="auth-subtitle">Masukkan password untuk mengakses fitur Import</div>
+        </div>
+        """, unsafe_allow_html=True)        
+
+        col_pad_l, col_input, col_pad_r = st.columns([1.5, 1, 1.5])
+        with col_input:
+            pwd = st.text_input("Password", type="password", key="import_pwd_input", label_visibility="collapsed")
+            if st.button("🔓 Masuk", use_container_width=True, type="primary"):
+                if pwd == "skemro9":
+                    st.session_state.import_authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Password salah!")
+        st.stop()
+
     show_import()
     st.stop()
 
@@ -361,6 +420,12 @@ def fmt_real(val, unit=""):
 # ====================================================================
 # PAGE HEADER
 # ====================================================================
+st.markdown("""
+<div style="margin-bottom:18px;">
+    <span style="font-size:11px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:#1677ff;">🏦 BSI Regional XI</span>
+    <div style="font-size:22px; font-weight:800; color:var(--text-primary, #1a1a2e); line-height:1.3;">Strategic KPI Evaluation System</div>
+</div>
+""", unsafe_allow_html=True)
 col_title, col_calc, col_import = st.columns([5.5, 1.5, 1])
 
 with col_title:
